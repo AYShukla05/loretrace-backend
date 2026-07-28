@@ -8,5 +8,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+asyncpg://loretrace:loretrace@localhost:5432/loretrace"
 
+    secret_key: str = "dev-secret-change-me"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
+
 
 settings = Settings()
