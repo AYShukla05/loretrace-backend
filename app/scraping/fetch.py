@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -18,7 +20,17 @@ class RobotsDisallowedError(Exception):
     pass
 
 
-async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> str:
+class NotModifiedError(Exception):
+    """Server confirmed the source is unchanged since the last successful fetch."""
+
+
+class FetchResult(NamedTuple):
+    text: str
+    etag: str | None
+    last_modified: str | None
+
+
+async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> FetchResult:
     if source.source_type not in (
         SourceType.GUTENBERG_TEXT,
         SourceType.WIKISOURCE,
@@ -31,12 +43,27 @@ async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> str:
 
     await _rate_limiter.wait(source.url)
 
-    response = await client.get(source.url, headers={"User-Agent": USER_AGENT}, timeout=30)
+    headers = {"User-Agent": USER_AGENT}
+    if source.etag:
+        headers["If-None-Match"] = source.etag
+    if source.last_modified:
+        headers["If-Modified-Since"] = source.last_modified
+
+    response = await client.get(source.url, headers=headers, timeout=30)
+    if response.status_code == 304:
+        raise NotModifiedError(f"{source.url} unchanged since last fetch")
     response.raise_for_status()
 
     if source.source_type == SourceType.GUTENBERG_TEXT:
-        return _extract_gutenberg_text(response.text)
-    return _extract_mediawiki_text(response.text)
+        text = _extract_gutenberg_text(response.text)
+    else:
+        text = _extract_mediawiki_text(response.text)
+
+    return FetchResult(
+        text=text,
+        etag=response.headers.get("ETag"),
+        last_modified=response.headers.get("Last-Modified"),
+    )
 
 
 def _extract_gutenberg_text(raw: str) -> str:
