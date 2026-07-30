@@ -11,8 +11,8 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.source import Source
 
-# text-embedding-3-small output dimension
-EMBEDDING_DIM = 1536
+# sentence-transformers/all-MiniLM-L6-v2 output dimension, see app/embedding.py
+EMBEDDING_DIM = 384
 
 
 class Chunk(Base):
