@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
-from app.models.enums import SourceStatus, SourceType, pg_enum
+from app.models.enums import AuthorPosition, Era, SourceStatus, SourceType, TextRole, pg_enum
 
 if TYPE_CHECKING:
     from app.models.chunk import Chunk
@@ -22,6 +22,14 @@ class Source(Base):
     status: Mapped[SourceStatus] = mapped_column(
         pg_enum(SourceStatus), default=SourceStatus.PENDING
     )
+    # Provenance, per LoreTrace_Bias_Mitigation_Plan.md Part 2. Admin-entered at
+    # ingestion, never model-inferred. Nullable until the admin ingestion UI
+    # exists to collect them; contradiction-flagging degrades to unattributed
+    # presentation for sources missing them rather than failing.
+    era: Mapped[Era | None] = mapped_column(pg_enum(Era))
+    author_position: Mapped[AuthorPosition | None] = mapped_column(pg_enum(AuthorPosition))
+    text_role: Mapped[TextRole | None] = mapped_column(pg_enum(TextRole))
+    known_bias_flags: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str | None] = mapped_column(String(64))
     etag: Mapped[str | None] = mapped_column(String(255))
     last_modified: Mapped[str | None] = mapped_column(String(255))
