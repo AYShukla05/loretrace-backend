@@ -21,6 +21,10 @@ def _to_read(source: Source, chunk_count: int) -> SourceRead:
         source_type=source.source_type,
         tradition=source.tradition,
         status=source.status,
+        era=source.era,
+        author_position=source.author_position,
+        text_role=source.text_role,
+        known_bias_flags=source.known_bias_flags,
         last_scraped_at=source.last_scraped_at,
         last_checked_at=source.last_checked_at,
         created_at=source.created_at,
@@ -53,6 +57,10 @@ async def create_source(
         source_type=payload.source_type,
         tradition=payload.tradition,
         status=SourceStatus.PENDING,
+        era=payload.era,
+        author_position=payload.author_position,
+        text_role=payload.text_role,
+        known_bias_flags=payload.known_bias_flags,
         added_by=admin.id,
     )
     db.add(source)
