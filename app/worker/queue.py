@@ -50,7 +50,7 @@ async def run_once(db: AsyncSession) -> bool:
     await db.commit()
 
     try:
-        await process_source(source, db)
+        scraped = await process_source(source, db)
     except Exception as exc:  # job worker boundary: one bad source must not kill the loop
         source.status = SourceStatus.FAILED
         source.last_checked_at = naive_utcnow()
@@ -62,7 +62,8 @@ async def run_once(db: AsyncSession) -> bool:
 
     now = naive_utcnow()
     source.status = SourceStatus.COMPLETED
-    source.last_scraped_at = now
+    if scraped:
+        source.last_scraped_at = now
     source.last_checked_at = now
     job.status = ScrapeJobStatus.COMPLETED
     job.finished_at = now
