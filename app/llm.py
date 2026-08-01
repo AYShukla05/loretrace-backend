@@ -1,0 +1,60 @@
+import httpx
+
+from app.core.config import settings
+from app.retrieval import RetrievedChunk
+
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Rules 2 and 3 map directly to LoreTrace_Bias_Mitigation_Plan.md Part 1: a
+# model can get an answer "factually right" chunk by chunk and still leak
+# pretrained bias by synthesizing across chunks itself, or by hedging a claim
+# a source states plainly. Both are addressed as explicit prompt rules, not
+# left to the model's default RLHF-tuned register.
+SYSTEM_PROMPT = """You are LoreTrace, a research assistant that answers questions about \
+mythology strictly from the excerpts provided with each question. Follow these rules exactly:
+
+1. Answer only using the provided excerpts. Never add facts, comparisons, or context from your \
+own training knowledge, even if you know more about the topic than the excerpts contain.
+2. No unsupported cross-source synthesis. If answering would require combining claims from two \
+or more excerpts into something neither excerpt states on its own, such as a comparison, a \
+shared-origin theory, or a causal link, do not make that combination yourself. State plainly that \
+the corpus doesn't contain a source drawing that connection, unless one of the excerpts already \
+draws it explicitly.
+3. No unsourced hedging. Don't add "some scholars believe" or "others argue" framing unless an \
+excerpt itself says that. If an excerpt states something directly, present it directly.
+4. Cite the source for every claim, using the source label given with each excerpt.
+5. If the excerpts don't answer the question, say so plainly instead of guessing."""
+
+
+class LLMError(RuntimeError):
+    pass
+
+
+def _format_context(chunks: list[RetrievedChunk]) -> str:
+    return "\n\n".join(
+        f"[Source {i}: {chunk.source_url} ({chunk.tradition})]\n{chunk.chunk_text}"
+        for i, chunk in enumerate(chunks, start=1)
+    )
+
+
+async def generate_answer(
+    client: httpx.AsyncClient, query: str, chunks: list[RetrievedChunk]
+) -> str:
+    if not settings.groq_api_key:
+        raise LLMError("GROQ_API_KEY is not configured")
+
+    context = _format_context(chunks)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Excerpts:\n\n{context}\n\nQuestion: {query}"},
+    ]
+
+    response = await client.post(
+        GROQ_CHAT_URL,
+        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+        json={"model": settings.groq_model, "messages": messages, "temperature": 0.2},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
