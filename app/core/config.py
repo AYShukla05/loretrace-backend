@@ -12,5 +12,8 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
+
 
 settings = Settings()
