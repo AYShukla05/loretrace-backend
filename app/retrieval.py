@@ -6,7 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.embedding import embed_texts
 from app.models.chunk import Chunk
+from app.models.enums import AuthorPosition, Era, TextRole
 from app.models.source import Source
+
+# Bias Mitigation Plan Part 2: default ordering (not filtering) prefers
+# indigenous primary sources when present. Everything else, including
+# sources with no author_position yet, keeps its retrieval (distance) order.
+_PROVENANCE_PRIORITY = {
+    AuthorPosition.INDIGENOUS_PRIMARY_TEXT: 0,
+    AuthorPosition.INDIGENOUS_SCHOLAR: 1,
+}
 
 # Cosine distance from pgvector's `<=>` operator: 0 is identical, 1 is
 # orthogonal, 2 is opposite. Provisional cutoff, not yet validated against
@@ -24,6 +33,10 @@ class RetrievedChunk:
     tradition: str
     chunk_text: str
     distance: float
+    author_position: AuthorPosition | None = None
+    era: Era | None = None
+    text_role: TextRole | None = None
+    known_bias_flags: str | None = None
 
 
 def _build_query(query_embedding: list[float], top_k: int, tradition: str | None) -> Select:
@@ -40,6 +53,19 @@ def _build_query(query_embedding: list[float], top_k: int, tradition: str | None
     return stmt
 
 
+def _provenance_rank(chunk: RetrievedChunk) -> int:
+    return _PROVENANCE_PRIORITY.get(chunk.author_position, len(_PROVENANCE_PRIORITY))
+
+
+def _sort_by_provenance(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    """Reorders (never drops) retrieved chunks so indigenous primary sources
+    come first, per LoreTrace_Bias_Mitigation_Plan.md Part 2. A stable sort,
+    so chunks within the same provenance tier keep their relative distance
+    order.
+    """
+    return sorted(chunks, key=_provenance_rank)
+
+
 async def retrieve_chunks(
     db: AsyncSession,
     query: str,
@@ -47,15 +73,16 @@ async def retrieve_chunks(
     tradition: str | None = None,
 ) -> list[RetrievedChunk]:
     """Embed the query and return the top_k closest active chunks by cosine
-    distance, restricted to RELEVANCE_THRESHOLD. An empty result means
-    nothing in the corpus is relevant enough to answer from, the caller
-    should refuse rather than invoke the LLM.
+    distance, restricted to RELEVANCE_THRESHOLD, reordered to prefer
+    indigenous primary sources. An empty result means nothing in the corpus
+    is relevant enough to answer from, the caller should refuse rather than
+    invoke the LLM.
     """
     (query_embedding,) = await asyncio.to_thread(embed_texts, [query])
     stmt = _build_query(query_embedding, top_k, tradition)
 
     rows = await db.execute(stmt)
-    return [
+    chunks = [
         RetrievedChunk(
             chunk_id=chunk.id,
             source_id=source.id,
@@ -63,6 +90,11 @@ async def retrieve_chunks(
             tradition=source.tradition,
             chunk_text=chunk.chunk_text,
             distance=distance,
+            author_position=source.author_position,
+            era=source.era,
+            text_role=source.text_role,
+            known_bias_flags=source.known_bias_flags,
         )
         for chunk, source, distance in rows.all()
     ]
+    return _sort_by_provenance(chunks)

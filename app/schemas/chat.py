@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from app.models.enums import AuthorPosition
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -10,6 +12,7 @@ class CitedSource(BaseModel):
     source_id: int
     source_url: str
     tradition: str
+    author_position: AuthorPosition | None
 
 
 class ChatResponse(BaseModel):
