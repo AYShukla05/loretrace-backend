@@ -1,6 +1,19 @@
 from sqlalchemy.dialects import postgresql
 
-from app.retrieval import RELEVANCE_THRESHOLD, _build_query
+from app.models.enums import AuthorPosition
+from app.retrieval import RELEVANCE_THRESHOLD, RetrievedChunk, _build_query, _sort_by_provenance
+
+
+def make_chunk(chunk_id: int, author_position: AuthorPosition | None) -> RetrievedChunk:
+    return RetrievedChunk(
+        chunk_id=chunk_id,
+        source_id=chunk_id,
+        source_url=f"https://example.com/{chunk_id}",
+        tradition="test",
+        chunk_text="text",
+        distance=0.1 * chunk_id,
+        author_position=author_position,
+    )
 
 
 def test_build_query_filters_active_chunks_within_relevance_threshold():
@@ -39,3 +52,38 @@ def test_build_query_joins_chunks_to_their_source():
     compiled = str(stmt.compile(dialect=postgresql.dialect()))
 
     assert "JOIN sources ON chunks.source_id = sources.id" in compiled
+
+
+def test_sort_by_provenance_moves_indigenous_primary_text_first():
+    western = make_chunk(1, AuthorPosition.WESTERN_ACADEMIC)
+    indigenous = make_chunk(2, AuthorPosition.INDIGENOUS_PRIMARY_TEXT)
+
+    result = _sort_by_provenance([western, indigenous])
+
+    assert [chunk.chunk_id for chunk in result] == [2, 1]
+
+
+def test_sort_by_provenance_moves_indigenous_scholar_before_unlabeled():
+    unlabeled = make_chunk(1, None)
+    scholar = make_chunk(2, AuthorPosition.INDIGENOUS_SCHOLAR)
+
+    result = _sort_by_provenance([unlabeled, scholar])
+
+    assert [chunk.chunk_id for chunk in result] == [2, 1]
+
+
+def test_sort_by_provenance_is_stable_within_the_same_tier():
+    first = make_chunk(1, AuthorPosition.MISSIONARY)
+    second = make_chunk(2, AuthorPosition.WESTERN_ACADEMIC)
+
+    result = _sort_by_provenance([first, second])
+
+    assert [chunk.chunk_id for chunk in result] == [1, 2]
+
+
+def test_sort_by_provenance_never_drops_chunks():
+    chunks = [make_chunk(i, None) for i in range(1, 4)]
+
+    result = _sort_by_provenance(chunks)
+
+    assert len(result) == 3

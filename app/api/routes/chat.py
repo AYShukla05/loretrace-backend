@@ -38,6 +38,7 @@ async def chat(payload: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
                 source_id=chunk.source_id,
                 source_url=chunk.source_url,
                 tradition=chunk.tradition,
+                author_position=chunk.author_position,
             )
         )
 

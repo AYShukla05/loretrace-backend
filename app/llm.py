@@ -23,18 +23,40 @@ draws it explicitly.
 3. No unsourced hedging. Don't add "some scholars believe" or "others argue" framing unless an \
 excerpt itself says that. If an excerpt states something directly, present it directly.
 4. Cite the source for every claim, using the source label given with each excerpt.
-5. If the excerpts don't answer the question, say so plainly instead of guessing."""
+5. If the excerpts don't answer the question, say so plainly instead of guessing.
+6. If excerpts disagree, present each one separately, attributed to its source label and \
+provenance tag, never merged into a single voice. Don't resolve the disagreement or say which \
+account is correct. If a source is tagged as colonial-era, missionary, or Western academic, \
+present its framing as that source's account, not as neutral fact."""
 
 
 class LLMError(RuntimeError):
     pass
 
 
+def _provenance_label(chunk: RetrievedChunk) -> str:
+    tags = [
+        chunk.author_position.value.replace("_", " ") if chunk.author_position else None,
+        chunk.text_role.value.replace("_", " ") if chunk.text_role else None,
+        chunk.era.value.replace("_", " ") if chunk.era else None,
+    ]
+    label = ", ".join(tag for tag in tags if tag)
+    if chunk.known_bias_flags:
+        flag = f"flagged: {chunk.known_bias_flags}"
+        label = f"{label}, {flag}" if label else flag
+    return label
+
+
 def _format_context(chunks: list[RetrievedChunk]) -> str:
-    return "\n\n".join(
-        f"[Source {i}: {chunk.source_url} ({chunk.tradition})]\n{chunk.chunk_text}"
-        for i, chunk in enumerate(chunks, start=1)
-    )
+    lines = []
+    for i, chunk in enumerate(chunks, start=1):
+        header = f"[Source {i}: {chunk.source_url} ({chunk.tradition})"
+        provenance = _provenance_label(chunk)
+        if provenance:
+            header += f", {provenance}"
+        header += "]"
+        lines.append(f"{header}\n{chunk.chunk_text}")
+    return "\n\n".join(lines)
 
 
 async def generate_answer(
