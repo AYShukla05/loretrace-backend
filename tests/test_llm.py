@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -98,3 +99,58 @@ def test_generate_answer_sends_auth_header_and_returns_content(monkeypatch):
     assert result == "Achilles is the son of Peleus and Thetis."
     assert seen["authorization"] == "Bearer test-key"
     assert "Sing, goddess, the anger of Achilles." in seen["body"]
+
+
+def test_generate_answer_falls_back_to_8b_on_rate_limit(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        calls.append(model)
+        if model == settings.groq_model:
+            return httpx.Response(429, json={"error": "rate limit exceeded"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "8b answer"}}]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert result == "8b answer"
+    assert calls == [settings.groq_model, settings.groq_fallback_model]
+
+
+def test_generate_answer_does_not_fall_back_on_non_rate_limit_error(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content)["model"])
+        return httpx.Response(500, json={"error": "server error"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert calls == [settings.groq_model]
+
+
+def test_generate_answer_with_explicit_model_skips_fallback(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content)["model"])
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        run(
+            generate_answer(
+                client, "Who is Achilles?", [make_chunk()], model=settings.groq_fallback_model
+            )
+        )
+
+    assert calls == [settings.groq_fallback_model]
