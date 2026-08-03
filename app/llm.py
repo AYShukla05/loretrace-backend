@@ -59,8 +59,23 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(lines)
 
 
+async def _call_groq(client: httpx.AsyncClient, model: str, messages: list[dict]) -> str:
+    response = await client.post(
+        GROQ_CHAT_URL,
+        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+        json={"model": model, "messages": messages, "temperature": 0.2},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
+
+
 async def generate_answer(
-    client: httpx.AsyncClient, query: str, chunks: list[RetrievedChunk]
+    client: httpx.AsyncClient,
+    query: str,
+    chunks: list[RetrievedChunk],
+    model: str | None = None,
 ) -> str:
     if not settings.groq_api_key:
         raise LLMError("GROQ_API_KEY is not configured")
@@ -71,12 +86,12 @@ async def generate_answer(
         {"role": "user", "content": f"Excerpts:\n\n{context}\n\nQuestion: {query}"},
     ]
 
-    response = await client.post(
-        GROQ_CHAT_URL,
-        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-        json={"model": settings.groq_model, "messages": messages, "temperature": 0.2},
-        timeout=30,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    if model is not None:
+        return await _call_groq(client, model, messages)
+
+    try:
+        return await _call_groq(client, settings.groq_model, messages)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 429:
+            raise
+        return await _call_groq(client, settings.groq_fallback_model, messages)
