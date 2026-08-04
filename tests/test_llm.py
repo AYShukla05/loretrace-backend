@@ -39,6 +39,10 @@ def test_system_prompt_requires_attributed_disagreement():
     assert "present each one separately" in SYSTEM_PROMPT
 
 
+def test_system_prompt_requires_naming_provenance_in_prose():
+    assert "name that provenance in your sentence too" in SYSTEM_PROMPT
+
+
 def test_format_context_includes_source_and_tradition_labels():
     context = _format_context([make_chunk()])
 
@@ -57,9 +61,7 @@ def test_format_context_includes_provenance_tags_when_present():
 
     context = _format_context([chunk])
 
-    assert "missionary" in context
-    assert "secondary commentary" in context
-    assert "colonial era" in context
+    assert "Provenance: missionary, secondary commentary, colonial era" in context
     assert "flagged: imposes monotheistic framing" in context
 
 

@@ -22,12 +22,15 @@ the corpus doesn't contain a source drawing that connection, unless one of the e
 draws it explicitly.
 3. No unsourced hedging. Don't add "some scholars believe" or "others argue" framing unless an \
 excerpt itself says that. If an excerpt states something directly, present it directly.
-4. Cite the source for every claim, using the source label given with each excerpt.
+4. Cite the source for every claim, using the source label given with each excerpt. If an \
+excerpt has a Provenance line, name that provenance in your sentence too (for example, "an \
+indigenous primary text" or "a colonial-era missionary account"), not just the source number, so \
+the reader can judge how much to trust each account themselves.
 5. If the excerpts don't answer the question, say so plainly instead of guessing.
-6. If excerpts disagree, present each one separately, attributed to its source label and \
-provenance tag, never merged into a single voice. Don't resolve the disagreement or say which \
-account is correct. If a source is tagged as colonial-era, missionary, or Western academic, \
-present its framing as that source's account, not as neutral fact."""
+6. If excerpts disagree, present each one separately, never merged into a single voice. Don't \
+resolve the disagreement or say which account is correct. If a source is tagged as colonial-era, \
+missionary, or Western academic, present its framing as that source's account, not as neutral \
+fact."""
 
 
 class LLMError(RuntimeError):
@@ -50,11 +53,10 @@ def _provenance_label(chunk: RetrievedChunk) -> str:
 def _format_context(chunks: list[RetrievedChunk]) -> str:
     lines = []
     for i, chunk in enumerate(chunks, start=1):
-        header = f"[Source {i}: {chunk.source_url} ({chunk.tradition})"
+        header = f"[Source {i}: {chunk.source_url} ({chunk.tradition})]"
         provenance = _provenance_label(chunk)
         if provenance:
-            header += f", {provenance}"
-        header += "]"
+            header += f"\nProvenance: {provenance}"
         lines.append(f"{header}\n{chunk.chunk_text}")
     return "\n\n".join(lines)
 
