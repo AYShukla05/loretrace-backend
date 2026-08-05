@@ -156,3 +156,45 @@ def test_generate_answer_with_explicit_model_skips_fallback(monkeypatch):
         )
 
     assert calls == [settings.groq_fallback_model]
+
+
+def test_generate_answer_falls_back_to_cloudflare_when_8b_also_rate_limited(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    monkeypatch.setattr(settings, "cloudflare_account_id", "test-account")
+    monkeypatch.setattr(settings, "cloudflare_api_token", "test-cf-token")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "cloudflare.com" in str(request.url):
+            calls.append("cloudflare")
+            assert request.headers.get("authorization") == "Bearer test-cf-token"
+            return httpx.Response(200, json={"result": {"response": "cloudflare answer"}})
+        calls.append(json.loads(request.content)["model"])
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert result == "cloudflare answer"
+    assert calls == [settings.groq_model, settings.groq_fallback_model, "cloudflare"]
+
+
+def test_generate_answer_raises_when_all_tiers_rate_limited_and_no_cloudflare_configured(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    monkeypatch.setattr(settings, "cloudflare_account_id", None)
+    monkeypatch.setattr(settings, "cloudflare_api_token", None)
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content)["model"])
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert calls == [settings.groq_model, settings.groq_fallback_model]

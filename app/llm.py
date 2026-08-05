@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.retrieval import RetrievedChunk
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+CLOUDFLARE_CHAT_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
 
 # Rules 2 and 3 map directly to LoreTrace_Bias_Mitigation_Plan.md Part 1: a
 # model can get an answer "factually right" chunk by chunk and still leak
@@ -73,6 +74,31 @@ async def _call_groq(client: httpx.AsyncClient, model: str, messages: list[dict]
     return data["choices"][0]["message"]["content"]
 
 
+async def _call_cloudflare(client: httpx.AsyncClient, messages: list[dict]) -> str:
+    url = CLOUDFLARE_CHAT_URL.format(
+        account_id=settings.cloudflare_account_id, model=settings.cloudflare_model
+    )
+    response = await client.post(
+        url,
+        headers={"Authorization": f"Bearer {settings.cloudflare_api_token}"},
+        json={"messages": messages},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["result"]["response"]
+
+
+def _fallback_tiers(client: httpx.AsyncClient, messages: list[dict]) -> list:
+    tiers = [
+        lambda: _call_groq(client, settings.groq_model, messages),
+        lambda: _call_groq(client, settings.groq_fallback_model, messages),
+    ]
+    if settings.cloudflare_account_id and settings.cloudflare_api_token:
+        tiers.append(lambda: _call_cloudflare(client, messages))
+    return tiers
+
+
 async def generate_answer(
     client: httpx.AsyncClient,
     query: str,
@@ -91,9 +117,11 @@ async def generate_answer(
     if model is not None:
         return await _call_groq(client, model, messages)
 
-    try:
-        return await _call_groq(client, settings.groq_model, messages)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code != 429:
-            raise
-        return await _call_groq(client, settings.groq_fallback_model, messages)
+    tiers = _fallback_tiers(client, messages)
+    for i, call in enumerate(tiers):
+        try:
+            return await call()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 429 or i == len(tiers) - 1:
+                raise
+    raise AssertionError("unreachable")
