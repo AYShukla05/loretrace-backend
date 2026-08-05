@@ -16,5 +16,9 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     groq_fallback_model: str = "llama-3.1-8b-instant"
 
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: str | None = None
+    cloudflare_model: str = "@cf/meta/llama-3.1-8b-instruct"
+
 
 settings = Settings()
