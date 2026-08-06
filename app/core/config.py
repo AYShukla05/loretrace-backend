@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     cloudflare_api_token: str | None = None
     cloudflare_model: str = "@cf/meta/llama-3.1-8b-instruct"
 
-    self_hosted_space: str | None = None
-    self_hosted_api_name: str = "/predict"
-    self_hosted_hf_token: str | None = None
+    self_hosted_url: str | None = None
+    self_hosted_api_token: str | None = None
+    self_hosted_model: str = "llama3.1:8b"
 
 
 settings = Settings()

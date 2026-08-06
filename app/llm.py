@@ -97,8 +97,8 @@ def _fallback_tiers(client: httpx.AsyncClient, messages: list[dict]) -> list:
     ]
     if settings.cloudflare_account_id and settings.cloudflare_api_token:
         tiers.append(lambda: _call_cloudflare(client, messages))
-    if settings.self_hosted_space:
-        tiers.append(lambda: call_self_hosted(messages))
+    if settings.self_hosted_url:
+        tiers.append(lambda: call_self_hosted(client, messages))
     return tiers
 
 
