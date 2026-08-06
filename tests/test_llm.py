@@ -186,6 +186,7 @@ def test_generate_answer_raises_when_all_tiers_rate_limited_and_no_cloudflare_co
     monkeypatch.setattr(settings, "groq_api_key", "test-key")
     monkeypatch.setattr(settings, "cloudflare_account_id", None)
     monkeypatch.setattr(settings, "cloudflare_api_token", None)
+    monkeypatch.setattr(settings, "self_hosted_space", None)
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -198,3 +199,65 @@ def test_generate_answer_raises_when_all_tiers_rate_limited_and_no_cloudflare_co
         run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
 
     assert calls == [settings.groq_model, settings.groq_fallback_model]
+
+
+def test_generate_answer_falls_back_to_self_hosted_when_cloudflare_also_rate_limited(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    monkeypatch.setattr(settings, "cloudflare_account_id", "test-account")
+    monkeypatch.setattr(settings, "cloudflare_api_token", "test-cf-token")
+    monkeypatch.setattr(settings, "self_hosted_space", "test-user/test-space")
+    calls = []
+
+    async def fake_call_self_hosted(messages):
+        calls.append("self-hosted")
+        return "self-hosted answer"
+
+    monkeypatch.setattr("app.llm.call_self_hosted", fake_call_self_hosted)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "cloudflare.com" in str(request.url):
+            calls.append("cloudflare")
+        else:
+            calls.append(json.loads(request.content)["model"])
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert result == "self-hosted answer"
+    assert calls == [settings.groq_model, settings.groq_fallback_model, "cloudflare", "self-hosted"]
+
+
+def test_generate_answer_raises_when_all_four_tiers_rate_limited(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    monkeypatch.setattr(settings, "cloudflare_account_id", "test-account")
+    monkeypatch.setattr(settings, "cloudflare_api_token", "test-cf-token")
+    monkeypatch.setattr(settings, "self_hosted_space", "test-user/test-space")
+    calls = []
+
+    async def fake_call_self_hosted(messages):
+        calls.append("self-hosted")
+        raise httpx.HTTPStatusError(
+            "rate limited",
+            request=httpx.Request("POST", "https://example.com"),
+            response=httpx.Response(429),
+        )
+
+    monkeypatch.setattr("app.llm.call_self_hosted", fake_call_self_hosted)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "cloudflare.com" in str(request.url):
+            calls.append("cloudflare")
+        else:
+            calls.append(json.loads(request.content)["model"])
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert calls == [settings.groq_model, settings.groq_fallback_model, "cloudflare", "self-hosted"]
