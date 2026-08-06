@@ -24,5 +24,14 @@ class Settings(BaseSettings):
     self_hosted_api_token: str | None = None
     self_hosted_model: str = "llama3.1:8b"
 
+    # Comma-separated, e.g. "https://loretrace.pages.dev". Local dev origins
+    # (any http://localhost:<port>) are allowed separately in app.main, since
+    # the Vite dev server's port isn't fixed.
+    cors_allowed_origins: str = ""
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
 
 settings = Settings()
