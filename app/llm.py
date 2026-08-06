@@ -2,6 +2,7 @@ import httpx
 
 from app.core.config import settings
 from app.retrieval import RetrievedChunk
+from app.self_hosted import call_self_hosted
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 CLOUDFLARE_CHAT_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
@@ -96,6 +97,8 @@ def _fallback_tiers(client: httpx.AsyncClient, messages: list[dict]) -> list:
     ]
     if settings.cloudflare_account_id and settings.cloudflare_api_token:
         tiers.append(lambda: _call_cloudflare(client, messages))
+    if settings.self_hosted_space:
+        tiers.append(lambda: call_self_hosted(messages))
     return tiers
 
 
