@@ -1,5 +1,7 @@
 import asyncio
+import json
 
+import httpx
 import pytest
 
 from app.core.config import settings
@@ -11,47 +13,45 @@ def run(coro):
 
 
 def test_call_self_hosted_raises_when_not_configured(monkeypatch):
-    monkeypatch.setattr(settings, "self_hosted_space", None)
+    monkeypatch.setattr(settings, "self_hosted_url", None)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
 
     with pytest.raises(SelfHostedError):
         run(
             call_self_hosted(
-                [{"role": "system", "content": "sys"}, {"role": "user", "content": "q"}]
+                client, [{"role": "system", "content": "sys"}, {"role": "user", "content": "q"}]
             )
         )
 
 
-def test_call_self_hosted_calls_predict_with_system_and_user_messages(monkeypatch):
-    monkeypatch.setattr(settings, "self_hosted_space", "test-user/test-space")
-    monkeypatch.setattr(settings, "self_hosted_api_name", "/predict")
-    monkeypatch.setattr(settings, "self_hosted_hf_token", "test-hf-token")
+def test_call_self_hosted_sends_auth_header_and_returns_content(monkeypatch):
+    monkeypatch.setattr(settings, "self_hosted_url", "http://test-vm.example:8000")
+    monkeypatch.setattr(settings, "self_hosted_api_token", "test-self-hosted-token")
+    monkeypatch.setattr(settings, "self_hosted_model", "llama3.1:8b")
     seen = {}
 
-    class FakeClient:
-        def __init__(self, src, token=None, verbose=True):
-            seen["src"] = src
-            seen["token"] = token
-            seen["verbose"] = verbose
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["authorization"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "self-hosted answer"}}]}
+        )
 
-        def predict(self, *args, api_name=None):
-            seen["args"] = args
-            seen["api_name"] = api_name
-            return "self-hosted answer"
-
-    monkeypatch.setattr("app.self_hosted.Client", FakeClient)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     result = run(
         call_self_hosted(
+            client,
             [
                 {"role": "system", "content": "sys prompt"},
                 {"role": "user", "content": "the question"},
-            ]
+            ],
         )
     )
 
     assert result == "self-hosted answer"
-    assert seen["src"] == "test-user/test-space"
-    assert seen["token"] == "test-hf-token"
-    assert seen["verbose"] is False
-    assert seen["args"] == ("sys prompt", "the question")
-    assert seen["api_name"] == "/predict"
+    assert seen["url"] == "http://test-vm.example:8000/v1/chat/completions"
+    assert seen["authorization"] == "Bearer test-self-hosted-token"
+    assert seen["body"]["model"] == "llama3.1:8b"
+    assert seen["body"]["messages"][1]["content"] == "the question"
