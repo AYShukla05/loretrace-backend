@@ -31,7 +31,16 @@ async def get_current_admin(
         raise credentials_error
 
     admin = await db.scalar(select(Admin).where(Admin.email == email))
-    if admin is None or not admin.is_admin:
+    if admin is None or not admin.is_active:
         raise credentials_error
 
+    return admin
+
+
+async def get_current_super_admin(admin: Admin = Depends(get_current_admin)) -> Admin:
+    if not admin.is_super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin privileges required",
+        )
     return admin
