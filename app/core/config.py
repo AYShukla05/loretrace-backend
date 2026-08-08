@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    # Consumed only by scripts/seed_super_admin.py, never read at request time.
+    super_admin_email: str | None = None
+    super_admin_password: str | None = None
+
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
     groq_fallback_model: str = "llama-3.1-8b-instant"
