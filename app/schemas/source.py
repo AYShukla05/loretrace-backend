@@ -7,8 +7,8 @@ from app.models.enums import AuthorPosition, Era, SourceStatus, SourceType, Text
 
 class SourceCreate(BaseModel):
     url: HttpUrl
-    source_type: SourceType
-    tradition: str = Field(max_length=50)
+    source_type: SourceType | None = None
+    tradition: str | None = Field(default=None, max_length=50)
     era: Era | None = None
     author_position: AuthorPosition | None = None
     text_role: TextRole | None = None
@@ -18,8 +18,8 @@ class SourceCreate(BaseModel):
 class SourceRead(BaseModel):
     id: int
     url: str
-    source_type: SourceType
-    tradition: str
+    source_type: SourceType | None
+    tradition: str | None
     status: SourceStatus
     era: Era | None
     author_position: AuthorPosition | None

@@ -55,7 +55,8 @@ def _provenance_label(chunk: RetrievedChunk) -> str:
 def _format_context(chunks: list[RetrievedChunk]) -> str:
     lines = []
     for i, chunk in enumerate(chunks, start=1):
-        header = f"[Source {i}: {chunk.source_url} ({chunk.tradition})]"
+        tradition_suffix = f" ({chunk.tradition})" if chunk.tradition else ""
+        header = f"[Source {i}: {chunk.source_url}{tradition_suffix}]"
         provenance = _provenance_label(chunk)
         if provenance:
             header += f"\nProvenance: {provenance}"

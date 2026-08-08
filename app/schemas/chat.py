@@ -11,7 +11,7 @@ class ChatRequest(BaseModel):
 class CitedSource(BaseModel):
     source_id: int
     source_url: str
-    tradition: str
+    tradition: str | None
     author_position: AuthorPosition | None
 
 
