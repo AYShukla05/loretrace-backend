@@ -9,7 +9,7 @@ from app.models.chunk import Chunk
 from app.models.enums import ScrapeJobStatus, SourceStatus
 from app.models.scrape_job import ScrapeJob
 from app.models.source import Source
-from app.schemas.source import SourceCreate, SourceRead
+from app.schemas.source import SourceCreate, SourceRead, SourceUpdate
 
 router = APIRouter(prefix="/admin/sources", tags=["admin"])
 
@@ -34,9 +34,7 @@ def _to_read(source: Source, chunk_count: int) -> SourceRead:
 
 async def _chunk_count(db: AsyncSession, source_id: int) -> int:
     count = await db.scalar(
-        select(func.count(Chunk.id)).where(
-            Chunk.source_id == source_id, Chunk.is_active.is_(True)
-        )
+        select(func.count(Chunk.id)).where(Chunk.source_id == source_id, Chunk.is_active.is_(True))
     )
     return count or 0
 
@@ -86,6 +84,26 @@ async def list_sources(
         .order_by(Source.created_at.desc())
     )
     return [_to_read(source, chunk_count) for source, chunk_count in rows.all()]
+
+
+@router.patch("/{source_id}", response_model=SourceRead)
+async def update_source(
+    source_id: int,
+    payload: SourceUpdate,
+    admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> SourceRead:
+    source = await db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source not found")
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(source, field, value)
+
+    db.add(source)
+    await db.commit()
+    await db.refresh(source)
+    return _to_read(source, await _chunk_count(db, source.id))
 
 
 @router.post("/{source_id}/rescrape", response_model=SourceRead)

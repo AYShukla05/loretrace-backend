@@ -15,6 +15,15 @@ class SourceCreate(BaseModel):
     known_bias_flags: str | None = None
 
 
+class SourceUpdate(BaseModel):
+    source_type: SourceType | None = None
+    tradition: str | None = Field(default=None, max_length=50)
+    era: Era | None = None
+    author_position: AuthorPosition | None = None
+    text_role: TextRole | None = None
+    known_bias_flags: str | None = None
+
+
 class SourceRead(BaseModel):
     id: int
     url: str
