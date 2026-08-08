@@ -30,7 +30,7 @@ class RetrievedChunk:
     chunk_id: int
     source_id: int
     source_url: str
-    tradition: str
+    tradition: str | None
     chunk_text: str
     distance: float
     author_position: AuthorPosition | None = None

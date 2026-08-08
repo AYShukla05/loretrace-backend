@@ -51,6 +51,16 @@ def test_format_context_includes_source_and_tradition_labels():
     assert "Sing, goddess, the anger of Achilles." in context
 
 
+def test_format_context_omits_tradition_parenthetical_when_absent():
+    chunk = make_chunk(tradition=None)
+
+    context = _format_context([chunk])
+
+    assert "https://example.com/iliad]" in context
+    assert "(None)" not in context
+    assert "()" not in context
+
+
 def test_format_context_includes_provenance_tags_when_present():
     chunk = make_chunk(
         author_position=AuthorPosition.MISSIONARY,
