@@ -1,3 +1,10 @@
+# CPU-only build. Without this, plain PyPI resolution can pull a
+# CUDA-enabled torch plus several nvidia-* packages on Linux (multiple GB),
+# which blows past free-tier deploy limits for a model that only ever runs
+# on CPU here anyway.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.6.0+cpu
+
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
