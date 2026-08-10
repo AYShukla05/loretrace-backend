@@ -39,3 +39,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.environment == "production" and settings.secret_key == "dev-secret-change-me":
+    raise RuntimeError("SECRET_KEY must be set via environment variable in production")
