@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     self_hosted_api_token: str | None = None
     self_hosted_model: str = "llama3.1:8b"
 
+    # Consumed only by the admin credibility-suggestion lookup
+    # (LoreTrace_Credibility_Suggestion_Design.md), never by /chat.
+    tavily_api_key: str | None = None
+
     # Comma-separated, e.g. "https://loretrace.pages.dev". Local dev origins
     # (any http://localhost:<port>) are allowed separately in app.main, since
     # the Vite dev server's port isn't fixed.

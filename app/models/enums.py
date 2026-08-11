@@ -46,6 +46,43 @@ class TextRole(str, enum.Enum):
     TERTIARY_SUMMARY = "tertiary_summary"
 
 
+# Independent of AuthorPosition, see LoreTrace_Credibility_Suggestion_Design.md
+# section 4.1 (Max Muller vs. David Frawley: foreign-born doesn't imply
+# textual-study-only, origin and lived practice don't always travel together).
+class HistoriographicalMethod(str, enum.Enum):
+    ORAL_TRADITION = "oral_tradition"
+    TEXTUAL_CRITICAL = "textual_critical"
+    COLONIAL_COMPARATIVE_MYTHOLOGY = "colonial_comparative_mythology"
+    ARCHAEOLOGICAL_CORRELATION = "archaeological_correlation"
+    ARCHAEOASTRONOMICAL_DATING = "archaeoastronomical_dating"
+    GENETIC_ANTHROPOLOGICAL = "genetic_anthropological"
+    MODERN_ACADEMIC_CONSENSUS = "modern_academic_consensus"
+    UNSPECIFIED = "unspecified"
+
+
+class AuthorOrigin(str, enum.Enum):
+    INDIGENOUS_BORN = "indigenous_born"
+    FOREIGN_BORN = "foreign_born"
+    UNKNOWN = "unknown"
+
+
+class AuthorEpistemicBasis(str, enum.Enum):
+    LIVED_PRACTICE = "lived_practice"
+    TEXTUAL_STUDY_ONLY = "textual_study_only"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class CredibilityEntityType(str, enum.Enum):
+    AUTHOR = "author"
+    INSTITUTION = "institution"
+
+
+class SuggestionStatus(str, enum.Enum):
+    PENDING = "pending"
+    REVIEWED = "reviewed"
+
+
 # SQLAlchemy's Enum stores the member *name* by default (e.g. "PENDING"), not
 # its value ("pending"). values_callable makes it store the value instead, to
 # match the migration and the spec's lowercase status strings.

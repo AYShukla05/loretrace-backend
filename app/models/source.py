@@ -6,7 +6,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
-from app.models.enums import AuthorPosition, Era, SourceStatus, SourceType, TextRole, pg_enum
+from app.models.enums import (
+    AuthorEpistemicBasis,
+    AuthorOrigin,
+    AuthorPosition,
+    Era,
+    HistoriographicalMethod,
+    SourceStatus,
+    SourceType,
+    TextRole,
+    pg_enum,
+)
 
 if TYPE_CHECKING:
     from app.models.chunk import Chunk
@@ -31,6 +41,21 @@ class Source(Base):
     author_position: Mapped[AuthorPosition | None] = mapped_column(pg_enum(AuthorPosition))
     text_role: Mapped[TextRole | None] = mapped_column(pg_enum(TextRole))
     known_bias_flags: Mapped[str | None] = mapped_column(Text)
+    # Independent of author_position, see
+    # LoreTrace_Credibility_Suggestion_Design.md section 4.1. Populated either
+    # by direct admin entry or, once built, admin-confirmed suggestions from
+    # the credibility-suggestion mechanism below.
+    historiographical_method: Mapped[HistoriographicalMethod | None] = mapped_column(
+        pg_enum(HistoriographicalMethod)
+    )
+    author_origin: Mapped[AuthorOrigin | None] = mapped_column(pg_enum(AuthorOrigin))
+    author_epistemic_basis: Mapped[AuthorEpistemicBasis | None] = mapped_column(
+        pg_enum(AuthorEpistemicBasis)
+    )
+    # The source's primary author/publisher, for suggestion caching. A second
+    # source by the same author reuses this row rather than triggering a new
+    # lookup.
+    credibility_entity_id: Mapped[int | None] = mapped_column(ForeignKey("credibility_entities.id"))
     content_hash: Mapped[str | None] = mapped_column(String(64))
     etag: Mapped[str | None] = mapped_column(String(255))
     last_modified: Mapped[str | None] = mapped_column(String(255))
