@@ -2,7 +2,16 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, HttpUrl
 
-from app.models.enums import AuthorPosition, Era, SourceStatus, SourceType, TextRole
+from app.models.enums import (
+    AuthorEpistemicBasis,
+    AuthorOrigin,
+    AuthorPosition,
+    Era,
+    HistoriographicalMethod,
+    SourceStatus,
+    SourceType,
+    TextRole,
+)
 
 
 class SourceCreate(BaseModel):
@@ -13,6 +22,9 @@ class SourceCreate(BaseModel):
     author_position: AuthorPosition | None = None
     text_role: TextRole | None = None
     known_bias_flags: str | None = None
+    historiographical_method: HistoriographicalMethod | None = None
+    author_origin: AuthorOrigin | None = None
+    author_epistemic_basis: AuthorEpistemicBasis | None = None
 
 
 class SourceUpdate(BaseModel):
@@ -22,6 +34,9 @@ class SourceUpdate(BaseModel):
     author_position: AuthorPosition | None = None
     text_role: TextRole | None = None
     known_bias_flags: str | None = None
+    historiographical_method: HistoriographicalMethod | None = None
+    author_origin: AuthorOrigin | None = None
+    author_epistemic_basis: AuthorEpistemicBasis | None = None
 
 
 class SourceRead(BaseModel):
@@ -34,6 +49,9 @@ class SourceRead(BaseModel):
     author_position: AuthorPosition | None
     text_role: TextRole | None
     known_bias_flags: str | None
+    historiographical_method: HistoriographicalMethod | None
+    author_origin: AuthorOrigin | None
+    author_epistemic_basis: AuthorEpistemicBasis | None
     last_scraped_at: datetime | None
     last_checked_at: datetime | None
     created_at: datetime
