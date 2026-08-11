@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from app.core.config import settings
-from app.credibility import ExtractionError, extract_facts_from_text
+from app.credibility import ExtractionError, extract_facts_from_text, normalize_entity_key
 from app.models.enums import CredibilityEntityType
 
 
@@ -114,6 +114,16 @@ def test_extract_facts_drops_unknown_keys_from_model_output(monkeypatch):
     facts = run(extract_facts_from_text(client, CredibilityEntityType.AUTHOR, "Someone", "text"))
 
     assert "made_up_field" not in facts
+
+
+def test_normalize_entity_key_strips_diacritics_and_punctuation():
+    assert normalize_entity_key("Max Müller") == "max muller"
+    assert normalize_entity_key("F. Max Müller") == "f max muller"
+    assert normalize_entity_key("Max Mueller") == "max mueller"
+
+
+def test_normalize_entity_key_collapses_whitespace_and_case():
+    assert normalize_entity_key("  Max   MULLER  ") == "max muller"
 
 
 def test_extract_facts_raises_on_invalid_json(monkeypatch):

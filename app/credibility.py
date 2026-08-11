@@ -1,9 +1,14 @@
 import json
+import re
+import unicodedata
 from typing import Any
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.credibility_entity import CredibilityEntity
 from app.models.enums import CredibilityEntityType
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -83,3 +88,53 @@ async def extract_facts_from_text(
 
     # Only ever return the known schema, even if the model adds extra keys.
     return {key: parsed.get(key) for key in FACT_KEYS}
+
+
+def normalize_entity_key(display_name: str) -> str:
+    """Aggressive normalization for cache dedup, per
+    LoreTrace_Credibility_Suggestion_Design.md section 6: lowercase, strip
+    diacritics and punctuation, collapse whitespace. Fuzzy near-match
+    handling ("did you mean X?") is deferred, not built here - this only
+    prevents exact-after-normalization duplicates.
+    """
+    stripped = "".join(
+        ch for ch in unicodedata.normalize("NFKD", display_name) if not unicodedata.combining(ch)
+    )
+    return re.sub(r"[^a-z0-9]+", " ", stripped.lower()).strip()
+
+
+async def get_or_create_credibility_entity(
+    db: AsyncSession,
+    client: httpx.AsyncClient,
+    entity_type: CredibilityEntityType,
+    display_name: str,
+    pasted_text: str,
+) -> tuple[CredibilityEntity, bool]:
+    """Cache-first per section 6: an existing row for this normalized name is
+    returned as-is, with no extraction call. Returns (entity, cache_hit).
+
+    Rule-table suggestion generation (section 7) isn't built yet -
+    suggested_values stays empty until that's implemented.
+    """
+    normalized_key = normalize_entity_key(display_name)
+    existing = await db.scalar(
+        select(CredibilityEntity).where(CredibilityEntity.normalized_key == normalized_key)
+    )
+    if existing is not None:
+        return existing, True
+
+    facts = await extract_facts_from_text(client, entity_type, display_name, pasted_text)
+    fact_provenance = {key: "admin_text" for key, value in facts.items() if value is not None}
+
+    entity = CredibilityEntity(
+        entity_type=entity_type,
+        display_name=display_name,
+        normalized_key=normalized_key,
+        facts=facts,
+        fact_provenance=fact_provenance,
+        suggested_values={},
+    )
+    db.add(entity)
+    await db.commit()
+    await db.refresh(entity)
+    return entity, False
