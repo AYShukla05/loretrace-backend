@@ -7,9 +7,11 @@ import pytest
 from app.core.config import settings
 from app.credibility import (
     ExtractionError,
+    extract_facts_from_search_results,
     extract_facts_from_text,
     generate_suggested_values,
     normalize_entity_key,
+    search_tavily,
 )
 from app.models.enums import AuthorEpistemicBasis, AuthorOrigin, CredibilityEntityType
 
@@ -221,6 +223,169 @@ def test_generate_suggested_values_empty_for_institution():
     facts = {"born_within_tradition_context": True, "practice_lineage": "x"}
     suggested = generate_suggested_values(CredibilityEntityType.INSTITUTION, facts, "vedic")
     assert suggested == {}
+
+
+def test_search_tavily_raises_without_api_key(monkeypatch):
+    monkeypatch.setattr(settings, "tavily_api_key", None)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+
+    with pytest.raises(ExtractionError):
+        run(search_tavily(client, "Max Muller biography"))
+
+
+def test_search_tavily_sends_query_and_returns_results(monkeypatch):
+    monkeypatch.setattr(settings, "tavily_api_key", "test-key")
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"url": "https://example.com/a", "title": "A", "content": "Born in 1823."},
+                    {"url": "https://example.com/b", "title": "B", "content": "Worked at Oxford."},
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    results = run(search_tavily(client, "Max Muller biography"))
+
+    assert seen["body"]["api_key"] == "test-key"
+    assert seen["body"]["query"] == "Max Muller biography"
+    assert len(results) == 2
+    assert results[0]["url"] == "https://example.com/a"
+
+
+def test_search_tavily_raises_on_empty_results(monkeypatch):
+    monkeypatch.setattr(settings, "tavily_api_key", "test-key")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": []})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(ExtractionError):
+        run(search_tavily(client, "an obscure figure with no coverage"))
+
+
+def test_extract_facts_from_search_results_attributes_facts_by_source(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    results = [
+        {"url": "https://example.com/a", "title": "A", "content": "Born in Germany, 1823."},
+        {"url": "https://example.com/b", "title": "B", "content": "Worked at Oxford University."},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "facts": {
+                                        "birth_year": {"value": 1823, "source": 1},
+                                        "institutional_affiliations": {
+                                            "value": ["Oxford University"],
+                                            "source": 2,
+                                        },
+                                    }
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    facts, fact_provenance = run(
+        extract_facts_from_search_results(
+            client, CredibilityEntityType.AUTHOR, "Max Muller", results
+        )
+    )
+
+    assert facts["birth_year"] == 1823
+    assert fact_provenance["birth_year"] == "https://example.com/a"
+    assert facts["institutional_affiliations"] == ["Oxford University"]
+    assert fact_provenance["institutional_affiliations"] == "https://example.com/b"
+    assert facts["occupation"] is None
+    assert "occupation" not in fact_provenance
+
+
+def test_extract_facts_from_search_results_drops_facts_with_invalid_source(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    results = [{"url": "https://example.com/a", "title": "A", "content": "Born in 1823."}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "facts": {
+                                        "birth_year": {"value": 1823, "source": 99},
+                                        "occupation": {"value": "philologist"},
+                                    }
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    facts, fact_provenance = run(
+        extract_facts_from_search_results(
+            client, CredibilityEntityType.AUTHOR, "Max Muller", results
+        )
+    )
+
+    assert facts["birth_year"] is None
+    assert "birth_year" not in fact_provenance
+    assert facts["occupation"] is None
+    assert "occupation" not in fact_provenance
+
+
+def test_extract_facts_from_search_results_requests_tradition_facts(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    results = [{"url": "https://example.com/a", "title": "A", "content": "Never visited Norway."}]
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"facts": {"tradition_engagement": {"value": False, "source": 1}}}
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    facts, fact_provenance = run(
+        extract_facts_from_search_results(
+            client, CredibilityEntityType.AUTHOR, "Someone", results, tradition="norse"
+        )
+    )
+
+    assert "norse" in seen["body"]["messages"][0]["content"]
+    assert facts["tradition_engagement"] is False
+    assert fact_provenance["tradition_engagement"] == "https://example.com/a"
 
 
 def test_normalize_entity_key_strips_diacritics_and_punctuation():
