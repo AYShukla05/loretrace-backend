@@ -17,10 +17,19 @@ GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 # every field applies to every entity_type (e.g. practice_lineage rarely
 # applies to an institution) - the model is told to use null rather than
 # guess when a field isn't covered by the pasted text.
+#
+# birth_region and practice_regions are deliberately separate facts, not one
+# combined residence_regions list: LoreTrace_Credibility_Suggestion_Design.md
+# section 7 derives author_origin from birth residence and
+# author_epistemic_basis from adulthood/practice residence specifically (the
+# Max Muller vs. David Frawley contrast in section 4.1 - both foreign-born,
+# only one a lived practitioner - only works if those two are distinguishable
+# facts, not the same list read two ways).
 FACT_KEYS = (
     "birth_year",
     "death_year",
-    "residence_regions",
+    "birth_region",
+    "practice_regions",
     "occupation",
     "institutional_affiliations",
     "practice_lineage",
@@ -42,8 +51,11 @@ says.
 3. Never assert a verdict on a contested claim (for example, whether a text or tradition is \
 historically accurate). Only extract biographical and institutional facts.
 4. Respond with a single JSON object with exactly these keys: {", ".join(FACT_KEYS)}. \
-"birth_year" and "death_year" are integers or null. "residence_regions", \
-"institutional_affiliations", and "documented_critique_refs" are arrays of strings, or null. \
+"birth_year" and "death_year" are integers or null. "birth_region" is the region/country the \
+person was born or raised in, as a string or null. "practice_regions" is where the person lived, \
+worked, or practiced later in life, as an array of strings or null - this can differ from \
+birth_region and both should reflect only what the text actually says. \
+"institutional_affiliations" and "documented_critique_refs" are arrays of strings, or null. \
 "occupation" and "practice_lineage" are strings or null."""
 
 

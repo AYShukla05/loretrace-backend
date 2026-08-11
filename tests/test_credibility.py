@@ -42,7 +42,8 @@ def test_extract_facts_sends_auth_header_and_entity_details(monkeypatch):
                                 {
                                     "birth_year": 1823,
                                     "death_year": 1900,
-                                    "residence_regions": ["Germany", "England"],
+                                    "birth_region": "Germany",
+                                    "practice_regions": ["England"],
                                     "occupation": "philologist",
                                     "institutional_affiliations": ["Oxford University"],
                                     "practice_lineage": None,
