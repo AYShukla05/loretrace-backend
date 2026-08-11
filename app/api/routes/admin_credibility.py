@@ -20,7 +20,12 @@ async def lookup_credibility(
     async with httpx.AsyncClient() as client:
         try:
             entity, cached = await get_or_create_credibility_entity(
-                db, client, payload.entity_type, payload.display_name, payload.pasted_text
+                db,
+                client,
+                payload.entity_type,
+                payload.display_name,
+                payload.pasted_text,
+                payload.tradition,
             )
         except ExtractionError as exc:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from None

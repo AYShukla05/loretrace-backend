@@ -10,6 +10,10 @@ class CredibilityLookupRequest(BaseModel):
     entity_type: CredibilityEntityType
     display_name: str = Field(min_length=1, max_length=255)
     pasted_text: str = Field(min_length=1)
+    # The source's tradition (Source.tradition), if the lookup is happening
+    # from a specific source's form. author_origin is only suggested when
+    # this is present - see app/credibility.py::generate_suggested_values.
+    tradition: str | None = Field(default=None, max_length=50)
 
 
 class CredibilityEntityRead(BaseModel):

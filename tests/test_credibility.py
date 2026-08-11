@@ -5,8 +5,13 @@ import httpx
 import pytest
 
 from app.core.config import settings
-from app.credibility import ExtractionError, extract_facts_from_text, normalize_entity_key
-from app.models.enums import CredibilityEntityType
+from app.credibility import (
+    ExtractionError,
+    extract_facts_from_text,
+    generate_suggested_values,
+    normalize_entity_key,
+)
+from app.models.enums import AuthorEpistemicBasis, AuthorOrigin, CredibilityEntityType
 
 
 def run(coro):
@@ -115,6 +120,107 @@ def test_extract_facts_drops_unknown_keys_from_model_output(monkeypatch):
     facts = run(extract_facts_from_text(client, CredibilityEntityType.AUTHOR, "Someone", "text"))
 
     assert "made_up_field" not in facts
+
+
+def test_extract_facts_requests_tradition_facts_when_tradition_given(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"birth_year": 1823, "born_within_tradition_context": False}
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    facts = run(
+        extract_facts_from_text(
+            client, CredibilityEntityType.AUTHOR, "Max Muller", "text", tradition="norse"
+        )
+    )
+
+    assert "norse" in seen["body"]["messages"][0]["content"]
+    assert "norse" in seen["body"]["messages"][1]["content"]
+    assert "born_within_tradition_context" in facts
+    assert facts["born_within_tradition_context"] is False
+    assert "tradition_engagement" in facts
+
+
+def test_extract_facts_omits_tradition_facts_without_tradition(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({"birth_year": 1823})}}]},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    facts = run(extract_facts_from_text(client, CredibilityEntityType.AUTHOR, "Max Muller", "text"))
+
+    assert "born_within_tradition_context" not in facts
+    assert "tradition_engagement" not in facts
+
+
+def test_suggest_epistemic_basis_textual_study_only_when_engagement_explicitly_false():
+    facts = {"practice_lineage": None, "tradition_engagement": False}
+    suggested = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, "vedic")
+    assert (
+        suggested["author_epistemic_basis"]["value"]
+        == AuthorEpistemicBasis.TEXTUAL_STUDY_ONLY.value
+    )
+
+
+def test_suggest_epistemic_basis_lived_practice_when_lineage_documented():
+    facts = {"practice_lineage": "trained under a named guru", "tradition_engagement": True}
+    suggested = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, "vedic")
+    assert suggested["author_epistemic_basis"]["value"] == AuthorEpistemicBasis.LIVED_PRACTICE.value
+
+
+def test_suggest_epistemic_basis_mixed_when_engagement_true_but_no_lineage():
+    facts = {"practice_lineage": None, "tradition_engagement": True}
+    suggested = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, "vedic")
+    assert suggested["author_epistemic_basis"]["value"] == AuthorEpistemicBasis.MIXED.value
+
+
+def test_suggest_epistemic_basis_unknown_when_facts_thin():
+    facts = {"practice_lineage": None, "tradition_engagement": None}
+    suggested = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, "vedic")
+    assert suggested["author_epistemic_basis"]["value"] == AuthorEpistemicBasis.UNKNOWN.value
+
+
+def test_suggest_author_origin_only_generated_when_tradition_given():
+    facts = {"born_within_tradition_context": True}
+    with_tradition = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, "vedic")
+    without_tradition = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, None)
+
+    assert with_tradition["author_origin"]["value"] == AuthorOrigin.INDIGENOUS_BORN.value
+    assert "author_origin" not in without_tradition
+
+
+def test_suggest_author_origin_foreign_born():
+    facts = {"born_within_tradition_context": False}
+    suggested = generate_suggested_values(CredibilityEntityType.AUTHOR, facts, "vedic")
+    assert suggested["author_origin"]["value"] == AuthorOrigin.FOREIGN_BORN.value
+
+
+def test_generate_suggested_values_empty_for_institution():
+    facts = {"born_within_tradition_context": True, "practice_lineage": "x"}
+    suggested = generate_suggested_values(CredibilityEntityType.INSTITUTION, facts, "vedic")
+    assert suggested == {}
 
 
 def test_normalize_entity_key_strips_diacritics_and_punctuation():
