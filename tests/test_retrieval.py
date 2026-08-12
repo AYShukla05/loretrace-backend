@@ -1,7 +1,13 @@
 from sqlalchemy.dialects import postgresql
 
 from app.models.enums import AuthorPosition
-from app.retrieval import RELEVANCE_THRESHOLD, RetrievedChunk, _build_query, _sort_by_provenance
+from app.retrieval import (
+    RELEVANCE_THRESHOLD,
+    RetrievedChunk,
+    _build_query,
+    _build_traditions_query,
+    _sort_by_provenance,
+)
 
 
 def make_chunk(chunk_id: int, author_position: AuthorPosition | None) -> RetrievedChunk:
@@ -87,3 +93,15 @@ def test_sort_by_provenance_never_drops_chunks():
     result = _sort_by_provenance(chunks)
 
     assert len(result) == 3
+
+
+def test_build_traditions_query_only_counts_active_chunks():
+    stmt = _build_traditions_query()
+    compiled = str(
+        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+    assert "chunks.is_active IS true" in compiled
+    assert "sources.tradition IS NOT NULL" in compiled
+    assert "DISTINCT" in compiled
+    assert "ORDER BY" in compiled

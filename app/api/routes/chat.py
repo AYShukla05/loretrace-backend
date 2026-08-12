@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.llm import LLMError, generate_answer
-from app.retrieval import retrieve_chunks
+from app.retrieval import list_traditions, retrieve_chunks
 from app.schemas.chat import ChatRequest, ChatResponse, CitedSource
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -13,6 +13,11 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 # per LoreTrace_Bias_Mitigation_Plan.md Part 1: no LLM call happens, so this
 # path can't be talked around by a clever prompt.
 REFUSAL_MESSAGE = "The corpus doesn't have any sources relevant enough to answer this question."
+
+
+@router.get("/traditions", response_model=list[str])
+async def traditions(db: AsyncSession = Depends(get_db)) -> list[str]:
+    return await list_traditions(db)
 
 
 @router.post("", response_model=ChatResponse)
