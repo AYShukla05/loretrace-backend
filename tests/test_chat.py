@@ -79,3 +79,14 @@ def test_chat_carries_author_position_onto_cited_sources(monkeypatch):
     response = run(chat_module.chat(ChatRequest(question="Who is Zeus?"), db=None))
 
     assert response.sources[0].author_position == AuthorPosition.INDIGENOUS_PRIMARY_TEXT
+
+
+def test_traditions_route_returns_list_traditions_result(monkeypatch):
+    async def fake_list_traditions(db):
+        return ["greek", "norse"]
+
+    monkeypatch.setattr(chat_module, "list_traditions", fake_list_traditions)
+
+    result = run(chat_module.traditions(db=None))
+
+    assert result == ["greek", "norse"]

@@ -66,6 +66,25 @@ def _sort_by_provenance(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
     return sorted(chunks, key=_provenance_rank)
 
 
+def _build_traditions_query() -> Select:
+    return (
+        select(Source.tradition)
+        .join(Chunk, Chunk.source_id == Source.id)
+        .where(Source.tradition.is_not(None), Chunk.is_active.is_(True))
+        .distinct()
+        .order_by(Source.tradition)
+    )
+
+
+async def list_traditions(db: AsyncSession) -> list[str]:
+    """Distinct tradition values with at least one retrievable chunk, so the
+    chat UI's filter never offers an option that would always refuse.
+    """
+    stmt = _build_traditions_query()
+    rows = await db.execute(stmt)
+    return [row[0] for row in rows.all()]
+
+
 async def retrieve_chunks(
     db: AsyncSession,
     query: str,
