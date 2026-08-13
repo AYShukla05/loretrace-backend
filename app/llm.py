@@ -103,6 +103,25 @@ def _fallback_tiers(client: httpx.AsyncClient, messages: list[dict]) -> list:
     return tiers
 
 
+async def generate_stock_answer(client: httpx.AsyncClient, query: str) -> str:
+    """The comparison-mode baseline: no system prompt, no retrieved context,
+    just the question straight to the primary Groq model, so the answer
+    reflects pretraining alone per LoreTrace_Bias_Mitigation_Plan.md Part 5.
+    Deliberately skips the fallback chain — this is a demo of a specific
+    named model, not a resilience-critical path, so a 429 should surface as
+    an honest failure rather than silently substituting a smaller model.
+    """
+    if not settings.groq_api_key:
+        raise LLMError("GROQ_API_KEY is not configured")
+
+    try:
+        return await _call_groq(client, settings.groq_model, [{"role": "user", "content": query}])
+    except httpx.HTTPStatusError as exc:
+        raise LLMError(f"stock model request failed: {exc.response.status_code}") from exc
+    except httpx.RequestError as exc:
+        raise LLMError(f"stock model request failed: {exc}") from exc
+
+
 async def generate_answer(
     client: httpx.AsyncClient,
     query: str,
