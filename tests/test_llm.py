@@ -5,7 +5,13 @@ import httpx
 import pytest
 
 from app.core.config import settings
-from app.llm import SYSTEM_PROMPT, LLMError, _format_context, generate_answer
+from app.llm import (
+    SYSTEM_PROMPT,
+    LLMError,
+    _format_context,
+    generate_answer,
+    generate_stock_answer,
+)
 from app.models.enums import AuthorPosition, Era, TextRole
 from app.retrieval import RetrievedChunk
 
@@ -240,6 +246,51 @@ def test_generate_answer_falls_back_to_self_hosted_when_cloudflare_also_rate_lim
 
     assert result == "self-hosted answer"
     assert calls == [settings.groq_model, settings.groq_fallback_model, "cloudflare", "self-hosted"]
+
+
+def test_generate_stock_answer_raises_without_api_key(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", None)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+
+    with pytest.raises(LLMError):
+        run(generate_stock_answer(client, "Was Thor inspired by Zeus?"))
+
+
+def test_generate_stock_answer_sends_no_system_prompt(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen["model"] = body["model"]
+        seen["messages"] = body["messages"]
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "Thor and Zeus are both sky gods."}}]}
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = run(generate_stock_answer(client, "Was Thor inspired by Zeus?"))
+
+    assert result == "Thor and Zeus are both sky gods."
+    assert seen["model"] == settings.groq_model
+    assert seen["messages"] == [{"role": "user", "content": "Was Thor inspired by Zeus?"}]
+
+
+def test_generate_stock_answer_raises_llm_error_on_rate_limit_without_falling_back(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content)["model"])
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(LLMError):
+        run(generate_stock_answer(client, "Was Thor inspired by Zeus?"))
+
+    assert calls == [settings.groq_model]
 
 
 def test_generate_answer_raises_when_all_four_tiers_rate_limited(monkeypatch):

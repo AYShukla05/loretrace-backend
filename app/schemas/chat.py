@@ -19,3 +19,10 @@ class ChatResponse(BaseModel):
     answer: str
     refused: bool
     sources: list[CitedSource]
+
+
+class CompareResponse(BaseModel):
+    question: str
+    stock_answer: str | None
+    stock_error: str | None
+    grounded: ChatResponse

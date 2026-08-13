@@ -1,6 +1,7 @@
 import asyncio
 
 from app.api.routes import chat as chat_module
+from app.llm import LLMError
 from app.models.enums import AuthorPosition
 from app.retrieval import RetrievedChunk
 from app.schemas.chat import ChatRequest
@@ -90,3 +91,70 @@ def test_traditions_route_returns_list_traditions_result(monkeypatch):
     result = run(chat_module.traditions(db=None))
 
     assert result == ["greek", "norse"]
+
+
+def test_compare_returns_both_stock_and_grounded_answers_on_success(monkeypatch):
+    chunks = [make_chunk(1, "https://example.com/a")]
+
+    async def fake_retrieve(*args, **kwargs):
+        return chunks
+
+    async def fake_generate(client, query, chunks):
+        return "Zeus is the king of the gods [Source 1]."
+
+    async def fake_generate_stock(client, query):
+        return "Thor was likely inspired by Zeus."
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
+    monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
+    monkeypatch.setattr(chat_module, "generate_stock_answer", fake_generate_stock)
+
+    response = run(chat_module.compare(ChatRequest(question="Was Thor inspired by Zeus?"), db=None))
+
+    assert response.question == "Was Thor inspired by Zeus?"
+    assert response.stock_answer == "Thor was likely inspired by Zeus."
+    assert response.stock_error is None
+    assert response.grounded.refused is False
+    assert response.grounded.answer == "Zeus is the king of the gods [Source 1]."
+
+
+def test_compare_still_attempts_stock_call_when_grounded_side_refuses(monkeypatch):
+    async def empty_retrieve(*args, **kwargs):
+        return []
+
+    async def fake_generate_stock(client, query):
+        return "Ragnarok is the Norse apocalypse."
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", empty_retrieve)
+    monkeypatch.setattr(chat_module, "generate_stock_answer", fake_generate_stock)
+
+    response = run(chat_module.compare(ChatRequest(question="What is Ragnarok?"), db=None))
+
+    assert response.grounded.refused is True
+    assert response.grounded.answer == chat_module.REFUSAL_MESSAGE
+    assert response.stock_answer == "Ragnarok is the Norse apocalypse."
+    assert response.stock_error is None
+
+
+def test_compare_reports_stock_error_without_failing_grounded_side(monkeypatch):
+    chunks = [make_chunk(1, "https://example.com/a")]
+
+    async def fake_retrieve(*args, **kwargs):
+        return chunks
+
+    async def fake_generate(client, query, chunks):
+        return "Zeus is the king of the gods [Source 1]."
+
+    async def failing_generate_stock(client, query):
+        raise LLMError("stock model request failed: 429")
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
+    monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
+    monkeypatch.setattr(chat_module, "generate_stock_answer", failing_generate_stock)
+
+    response = run(chat_module.compare(ChatRequest(question="Who is Zeus?"), db=None))
+
+    assert response.grounded.refused is False
+    assert response.grounded.answer == "Zeus is the king of the gods [Source 1]."
+    assert response.stock_answer is None
+    assert response.stock_error == "stock model request failed: 429"
