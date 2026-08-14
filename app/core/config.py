@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     self_hosted_api_token: str | None = None
     self_hosted_model: str = "llama3.1:8b"
 
+    # A claim+scrape+chunk+embed+commit cycle should never legitimately take
+    # longer than this; past it, app.worker.runner assumes the connection is
+    # wedged (see its module comment) rather than that the job is just slow.
+    # Kept tunable via env rather than a code constant since the right value
+    # depends on real embedding throughput for the largest source ingested,
+    # which will only be known empirically.
+    worker_job_watchdog_seconds: float = 300.0
+
     # Consumed only by the admin credibility-suggestion lookup
     # (LoreTrace_Credibility_Suggestion_Design.md), never by /chat.
     tavily_api_key: str | None = None
