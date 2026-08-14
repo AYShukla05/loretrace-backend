@@ -34,11 +34,13 @@ async def claim_next_source(db: AsyncSession) -> Source | None:
     return source
 
 
-async def run_once(db: AsyncSession) -> bool:
-    """Claim and process one pending source. Returns False if the queue is empty."""
-    source = await claim_next_source(db)
-    if source is None:
-        return False
+async def run_claimed_job(source: Source, db: AsyncSession) -> None:
+    """Process an already-claimed source (status already SCRAPING) to completion."""
+    # source was loaded via a different session (claim_next_source's), so it's
+    # detached from this one. Re-attach it before mutating any of its fields
+    # below, or those mutations are invisible to this session's autoflush and
+    # silently never get committed, even though job/chunk writes do.
+    db.add(source)
 
     job = ScrapeJob(
         source_id=source.id,
@@ -58,7 +60,7 @@ async def run_once(db: AsyncSession) -> bool:
         job.error_message = str(exc)
         job.finished_at = naive_utcnow()
         await db.commit()
-        return True
+        return
 
     now = naive_utcnow()
     source.status = SourceStatus.COMPLETED
@@ -68,4 +70,3 @@ async def run_once(db: AsyncSession) -> bool:
     job.status = ScrapeJobStatus.COMPLETED
     job.finished_at = now
     await db.commit()
-    return True
