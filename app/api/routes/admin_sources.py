@@ -18,6 +18,7 @@ def _to_read(source: Source, chunk_count: int) -> SourceRead:
     return SourceRead(
         id=source.id,
         url=source.url,
+        title=source.title,
         source_type=source.source_type,
         tradition=source.tradition,
         status=source.status,
@@ -55,6 +56,7 @@ async def create_source(
 
     source = Source(
         url=url,
+        title=payload.title,
         source_type=payload.source_type,
         tradition=payload.tradition,
         status=SourceStatus.PENDING,
