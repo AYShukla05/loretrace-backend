@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.models.enums import (
     AuthorEpistemicBasis,
@@ -12,6 +12,16 @@ from app.models.enums import (
     SourceType,
     TextRole,
 )
+
+
+def normalize_tradition(value: str | None) -> str | None:
+    """Collapse whitespace/casing variants ("norse", " Norse ", "NORSE") into
+    one canonical form, so the same tradition doesn't fragment into several
+    near-duplicate values across sources entered by different admins."""
+    if value is None:
+        return None
+    collapsed = " ".join(value.split())
+    return collapsed.title() if collapsed else None
 
 
 class SourceCreate(BaseModel):
@@ -26,6 +36,8 @@ class SourceCreate(BaseModel):
     author_origin: AuthorOrigin | None = None
     author_epistemic_basis: AuthorEpistemicBasis | None = None
 
+    _normalize_tradition = field_validator("tradition")(normalize_tradition)
+
 
 class SourceUpdate(BaseModel):
     source_type: SourceType | None = None
@@ -37,6 +49,8 @@ class SourceUpdate(BaseModel):
     historiographical_method: HistoriographicalMethod | None = None
     author_origin: AuthorOrigin | None = None
     author_epistemic_basis: AuthorEpistemicBasis | None = None
+
+    _normalize_tradition = field_validator("tradition")(normalize_tradition)
 
 
 class SourceRead(BaseModel):
