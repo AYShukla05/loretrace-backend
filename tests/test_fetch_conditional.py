@@ -14,15 +14,25 @@ GUTENBERG_BODY = (
     "*** END OF THIS PROJECT GUTENBERG EBOOK ***"
 )
 
+GUTENBERG_BODY_WITH_TITLE = (
+    "The Project Gutenberg eBook of The Poetic Edda\n\n"
+    "Title: The Poetic Edda\n"
+    "        Translated from the Icelandic with an introduction and notes\n\n"
+    "Author: Various\n\n" + GUTENBERG_BODY
+)
+
+MEDIAWIKI_BODY = (
+    "<html><body>"
+    '<h1 id="firstHeading"><span lang="en"><span>Prose Edda</span></span></h1>'
+    '<div id="mw-content-text"><p>Once upon a time.</p></div>'
+    "</body></html>"
+)
+
 
 def make_source(url: str, **overrides) -> Source:
-    return Source(
-        url=url,
-        source_type=SourceType.GUTENBERG_TEXT,
-        tradition="greek",
-        added_by=1,
-        **overrides,
-    )
+    defaults = {"source_type": SourceType.GUTENBERG_TEXT, "tradition": "greek", "added_by": 1}
+    defaults.update(overrides)
+    return Source(url=url, **defaults)
 
 
 def run(coro):
@@ -136,6 +146,48 @@ def test_resolves_gutenberg_catalog_page_to_its_text_link():
 
     assert "Once upon a time." in result.text
     assert "/ebooks/999.txt.utf-8" in requested_paths
+
+
+def test_extracts_title_from_gutenberg_metadata_header():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=GUTENBERG_BODY_WITH_TITLE)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source("https://example.com/six/book.txt")
+
+    result = run(fetch_source_text(client, source))
+
+    assert result.title == "The Poetic Edda"
+
+
+def test_gutenberg_title_is_none_without_a_title_line():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=GUTENBERG_BODY)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source("https://example.com/seven/book.txt")
+
+    result = run(fetch_source_text(client, source))
+
+    assert result.title is None
+
+
+def test_extracts_title_from_mediawiki_first_heading():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=MEDIAWIKI_BODY)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source("https://example.com/eight/page", source_type=SourceType.WIKISOURCE)
+
+    result = run(fetch_source_text(client, source))
+
+    assert result.title == "Prose Edda"
 
 
 def test_gutenberg_direct_text_url_skips_catalog_resolution():

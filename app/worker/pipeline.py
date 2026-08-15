@@ -25,6 +25,12 @@ async def process_source(source: Source, db: AsyncSession) -> bool:
         except NotModifiedError:
             return False
 
+    # Only fills in a title inferred from the source's own metadata if one
+    # isn't already set, so a later re-scrape never clobbers an admin's
+    # manual correction with a fresh inference.
+    if source.title is None and fetch_result.title:
+        source.title = fetch_result.title
+
     if content_unchanged(source.content_hash, fetch_result.text):
         source.etag = fetch_result.etag
         source.last_modified = fetch_result.last_modified
