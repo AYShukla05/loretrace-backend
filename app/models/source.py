@@ -27,6 +27,12 @@ class Source(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     url: Mapped[str] = mapped_column(String(2048), unique=True, index=True)
+    # Nullable: populated automatically during scraping (parsed from the
+    # source's own metadata, e.g. a Gutenberg "Title:" header or a MediaWiki
+    # page heading), not admin-entered by default. Admin-editable as an
+    # override via PATCH for sources where inference is wrong, missing, or
+    # predate this field.
+    title: Mapped[str | None] = mapped_column(String(255))
     # Nullable: only url is required at creation, admins fill these in later.
     source_type: Mapped[SourceType | None] = mapped_column(pg_enum(SourceType))
     tradition: Mapped[str | None] = mapped_column(String(50), index=True)

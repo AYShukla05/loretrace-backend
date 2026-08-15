@@ -26,6 +26,9 @@ def normalize_tradition(value: str | None) -> str | None:
 
 class SourceCreate(BaseModel):
     url: HttpUrl
+    # Normally left unset and filled in automatically during scraping; an
+    # admin can still set it directly here to skip or pre-empt inference.
+    title: str | None = Field(default=None, max_length=255)
     source_type: SourceType | None = None
     tradition: str | None = Field(default=None, max_length=50)
     era: Era | None = None
@@ -40,6 +43,7 @@ class SourceCreate(BaseModel):
 
 
 class SourceUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
     source_type: SourceType | None = None
     tradition: str | None = Field(default=None, max_length=50)
     era: Era | None = None
@@ -56,6 +60,7 @@ class SourceUpdate(BaseModel):
 class SourceRead(BaseModel):
     id: int
     url: str
+    title: str | None
     source_type: SourceType | None
     tradition: str | None
     status: SourceStatus
