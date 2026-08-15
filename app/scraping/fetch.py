@@ -1,3 +1,4 @@
+import re
 from typing import NamedTuple
 from urllib.parse import urljoin
 
@@ -14,6 +15,7 @@ USER_AGENT = "LoreTraceBot/0.1 (+https://loretrace.pages.dev)"
 GUTENBERG_START_MARKER = "*** START OF"
 GUTENBERG_END_MARKER = "*** END OF"
 GUTENBERG_TEXT_SUFFIXES = (".txt", ".txt.utf-8")
+GUTENBERG_TITLE_PATTERN = re.compile(r"^Title:\s*(.+)$", re.MULTILINE)
 
 _rate_limiter = DomainRateLimiter(min_interval_seconds=2.0)
 
@@ -30,6 +32,7 @@ class FetchResult(NamedTuple):
     text: str
     etag: str | None
     last_modified: str | None
+    title: str | None
 
 
 async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> FetchResult:
@@ -62,13 +65,16 @@ async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> FetchR
 
     if source.source_type == SourceType.GUTENBERG_TEXT:
         text = _extract_gutenberg_text(response.text)
+        title = _extract_gutenberg_title(response.text)
     else:
         text = _extract_mediawiki_text(response.text)
+        title = _extract_mediawiki_title(response.text)
 
     return FetchResult(
         text=text,
         etag=response.headers.get("ETag"),
         last_modified=response.headers.get("Last-Modified"),
+        title=title,
     )
 
 
@@ -109,6 +115,30 @@ def _extract_gutenberg_text(raw: str) -> str:
         end = len(raw)
 
     return raw[start:end].strip()
+
+
+def _extract_gutenberg_title(raw: str) -> str | None:
+    """Parse the "Title:" line from Gutenberg's own standard metadata header
+    (before *** START OF ***), rather than the noisier catalog-page <title>
+    tag or a guessed filename pattern. Only the title's first line is kept —
+    a wrapped subtitle continuation line, if present, is dropped in favor of
+    a short, citable name."""
+    header_end = raw.find(GUTENBERG_START_MARKER)
+    header = raw if header_end == -1 else raw[:header_end]
+    match = GUTENBERG_TITLE_PATTERN.search(header)
+    if match is None:
+        return None
+    title = match.group(1).strip()
+    return title or None
+
+
+def _extract_mediawiki_title(html: str) -> str | None:
+    soup = BeautifulSoup(html, "html.parser")
+    heading = soup.select_one("#firstHeading")
+    if heading is None:
+        return None
+    title = heading.get_text(strip=True)
+    return title or None
 
 
 def _extract_mediawiki_text(html: str) -> str:
