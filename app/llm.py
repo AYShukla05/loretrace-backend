@@ -53,15 +53,25 @@ def _provenance_label(chunk: RetrievedChunk) -> str:
 
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
-    lines = []
-    for i, chunk in enumerate(chunks, start=1):
-        tradition_suffix = f" ({chunk.tradition})" if chunk.tradition else ""
-        header = f"[Source {i}: {chunk.source_url}{tradition_suffix}]"
-        provenance = _provenance_label(chunk)
-        if provenance:
-            header += f"\nProvenance: {provenance}"
-        lines.append(f"{header}\n{chunk.chunk_text}")
-    return "\n\n".join(lines)
+    """Groups excerpts by source_id, not by chunk: a multi-excerpt retrieval
+    from a single source (the common case once a corpus has few sources with
+    many chunks each) previously numbered every chunk as its own "Source N"
+    with a repeated, identical provenance line, which read as several
+    different sources to both the model and the reader.
+    """
+    order: list[int] = []
+    blocks: dict[int, list[str]] = {}
+    for chunk in chunks:
+        if chunk.source_id not in blocks:
+            order.append(chunk.source_id)
+            tradition_suffix = f" ({chunk.tradition})" if chunk.tradition else ""
+            header = f"[Source {len(order)}: {chunk.source_url}{tradition_suffix}]"
+            provenance = _provenance_label(chunk)
+            if provenance:
+                header += f"\nProvenance: {provenance}"
+            blocks[chunk.source_id] = [header]
+        blocks[chunk.source_id].append(chunk.chunk_text)
+    return "\n\n".join("\n".join(blocks[source_id]) for source_id in order)
 
 
 async def _call_groq(client: httpx.AsyncClient, model: str, messages: list[dict]) -> str:

@@ -88,6 +88,48 @@ def test_format_context_omits_provenance_tags_when_absent():
     assert "flagged:" not in context
 
 
+def test_format_context_groups_multiple_chunks_from_the_same_source():
+    first = make_chunk(chunk_id=1, chunk_text="First excerpt.")
+    second = make_chunk(chunk_id=2, chunk_text="Second excerpt.")
+
+    context = _format_context([first, second])
+
+    assert context.count("[Source 1:") == 1
+    assert "First excerpt." in context
+    assert "Second excerpt." in context
+
+
+def test_format_context_numbers_distinct_sources_once_each():
+    same_source_a = make_chunk(chunk_id=1, source_id=1)
+    same_source_b = make_chunk(chunk_id=2, source_id=1)
+    other_source = make_chunk(chunk_id=3, source_id=2, source_url="https://example.com/odyssey")
+
+    context = _format_context([same_source_a, same_source_b, other_source])
+
+    assert context.count("[Source 1:") == 1
+    assert context.count("[Source 2:") == 1
+    assert "https://example.com/odyssey" in context
+
+
+def test_format_context_repeats_provenance_only_once_per_source():
+    chunk_a = make_chunk(
+        chunk_id=1,
+        author_position=AuthorPosition.MISSIONARY,
+        text_role=TextRole.SECONDARY_COMMENTARY,
+        era=Era.COLONIAL_ERA,
+    )
+    chunk_b = make_chunk(
+        chunk_id=2,
+        author_position=AuthorPosition.MISSIONARY,
+        text_role=TextRole.SECONDARY_COMMENTARY,
+        era=Era.COLONIAL_ERA,
+    )
+
+    context = _format_context([chunk_a, chunk_b])
+
+    assert context.count("Provenance: missionary, secondary commentary, colonial era") == 1
+
+
 def test_generate_answer_raises_without_api_key(monkeypatch):
     monkeypatch.setattr(settings, "groq_api_key", None)
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
