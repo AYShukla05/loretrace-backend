@@ -43,11 +43,20 @@ def test_system_prompt_forbids_unsourced_hedging():
 
 
 def test_system_prompt_requires_attributed_disagreement():
-    assert "present each one separately" in SYSTEM_PROMPT
+    assert "tell each version separately" in SYSTEM_PROMPT
 
 
-def test_system_prompt_requires_naming_provenance_in_prose():
-    assert "name that provenance in your sentence too" in SYSTEM_PROMPT
+def test_system_prompt_requires_naming_sources_in_prose():
+    assert "Name where a story comes from in plain language, not a citation number" in SYSTEM_PROMPT
+
+
+def test_system_prompt_permits_explaining_disagreement_from_provenance_only():
+    assert "You can share why they likely differ" in SYSTEM_PROMPT
+    assert "doesn't mean deciding which account is correct" in SYSTEM_PROMPT
+
+
+def test_system_prompt_treats_beliefs_as_living_wisdom_not_a_specimen():
+    assert "living wisdom, not a specimen under glass" in SYSTEM_PROMPT
 
 
 def test_source_label_prefers_title_over_fallback():
