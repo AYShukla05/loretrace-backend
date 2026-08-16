@@ -37,6 +37,7 @@ class RetrievedChunk:
     era: Era | None = None
     text_role: TextRole | None = None
     known_bias_flags: str | None = None
+    title: str | None = None
 
 
 def _build_query(query_embedding: list[float], top_k: int, tradition: str | None) -> Select:
@@ -113,6 +114,7 @@ async def retrieve_chunks(
             era=source.era,
             text_role=source.text_role,
             known_bias_flags=source.known_bias_flags,
+            title=source.title,
         )
         for chunk, source, distance in rows.all()
     ]

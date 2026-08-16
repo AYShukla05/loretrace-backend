@@ -9,6 +9,7 @@ from app.llm import (
     SYSTEM_PROMPT,
     LLMError,
     _format_context,
+    _source_label,
     generate_answer,
     generate_stock_answer,
 )
@@ -49,20 +50,44 @@ def test_system_prompt_requires_naming_provenance_in_prose():
     assert "name that provenance in your sentence too" in SYSTEM_PROMPT
 
 
-def test_format_context_includes_source_and_tradition_labels():
-    context = _format_context([make_chunk()])
+def test_source_label_prefers_title_over_fallback():
+    chunk = make_chunk(title="The poetic Edda")
 
-    assert "https://example.com/iliad" in context
-    assert "(greek)" in context
+    assert _source_label(chunk) == "The poetic Edda"
+
+
+def test_source_label_falls_back_to_tradition_when_untitled():
+    chunk = make_chunk(title=None, tradition="greek")
+
+    assert _source_label(chunk) == "an untitled greek source"
+
+
+def test_source_label_falls_back_to_generic_when_untitled_and_no_tradition():
+    chunk = make_chunk(title=None, tradition=None)
+
+    assert _source_label(chunk) == "an untitled source"
+
+
+def test_format_context_cites_by_title_not_a_source_number():
+    context = _format_context([make_chunk(title="The poetic Edda")])
+
+    assert "[The poetic Edda (greek): https://example.com/iliad]" in context
     assert "Sing, goddess, the anger of Achilles." in context
+    assert "Source 1" not in context
+
+
+def test_format_context_uses_untitled_fallback_when_no_title():
+    context = _format_context([make_chunk(title=None)])
+
+    assert "[an untitled greek source: https://example.com/iliad]" in context
 
 
 def test_format_context_omits_tradition_parenthetical_when_absent():
-    chunk = make_chunk(tradition=None)
+    chunk = make_chunk(tradition=None, title=None)
 
     context = _format_context([chunk])
 
-    assert "https://example.com/iliad]" in context
+    assert "[an untitled source: https://example.com/iliad]" in context
     assert "(None)" not in context
     assert "()" not in context
 
@@ -82,32 +107,37 @@ def test_format_context_includes_provenance_tags_when_present():
 
 
 def test_format_context_omits_provenance_tags_when_absent():
-    context = _format_context([make_chunk()])
+    context = _format_context([make_chunk(title="The poetic Edda")])
 
-    assert context.count("[Source 1:") == 1
+    assert context.count("[The poetic Edda") == 1
     assert "flagged:" not in context
 
 
 def test_format_context_groups_multiple_chunks_from_the_same_source():
-    first = make_chunk(chunk_id=1, chunk_text="First excerpt.")
-    second = make_chunk(chunk_id=2, chunk_text="Second excerpt.")
+    first = make_chunk(chunk_id=1, title="The poetic Edda", chunk_text="First excerpt.")
+    second = make_chunk(chunk_id=2, title="The poetic Edda", chunk_text="Second excerpt.")
 
     context = _format_context([first, second])
 
-    assert context.count("[Source 1:") == 1
+    assert context.count("[The poetic Edda") == 1
     assert "First excerpt." in context
     assert "Second excerpt." in context
 
 
-def test_format_context_numbers_distinct_sources_once_each():
-    same_source_a = make_chunk(chunk_id=1, source_id=1)
-    same_source_b = make_chunk(chunk_id=2, source_id=1)
-    other_source = make_chunk(chunk_id=3, source_id=2, source_url="https://example.com/odyssey")
+def test_format_context_labels_distinct_sources_once_each():
+    same_source_a = make_chunk(chunk_id=1, source_id=1, title="The poetic Edda")
+    same_source_b = make_chunk(chunk_id=2, source_id=1, title="The poetic Edda")
+    other_source = make_chunk(
+        chunk_id=3,
+        source_id=2,
+        source_url="https://example.com/odyssey",
+        title="The Odyssey",
+    )
 
     context = _format_context([same_source_a, same_source_b, other_source])
 
-    assert context.count("[Source 1:") == 1
-    assert context.count("[Source 2:") == 1
+    assert context.count("[The poetic Edda") == 1
+    assert context.count("[The Odyssey") == 1
     assert "https://example.com/odyssey" in context
 
 
