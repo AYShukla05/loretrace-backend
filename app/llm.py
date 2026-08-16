@@ -52,6 +52,21 @@ def _provenance_label(chunk: RetrievedChunk) -> str:
     return label
 
 
+def _source_label(chunk: RetrievedChunk) -> str:
+    """A name the model can actually cite in prose, per
+    LoreTrace_Bias_Mitigation_Plan.md's citation-by-name direction, instead
+    of a numbered "Source N" that means nothing to a reader. Most sources
+    have a title now that scraping infers one (see app/scraping/fetch.py),
+    but older or manually-added sources may not, so a plain description is
+    the fallback rather than a hard requirement.
+    """
+    if chunk.title:
+        return chunk.title
+    if chunk.tradition:
+        return f"an untitled {chunk.tradition} source"
+    return "an untitled source"
+
+
 def _format_context(chunks: list[RetrievedChunk]) -> str:
     """Groups excerpts by source_id, not by chunk: a multi-excerpt retrieval
     from a single source (the common case once a corpus has few sources with
@@ -64,8 +79,9 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     for chunk in chunks:
         if chunk.source_id not in blocks:
             order.append(chunk.source_id)
-            tradition_suffix = f" ({chunk.tradition})" if chunk.tradition else ""
-            header = f"[Source {len(order)}: {chunk.source_url}{tradition_suffix}]"
+            label = _source_label(chunk)
+            tradition_suffix = f" ({chunk.tradition})" if chunk.tradition and chunk.title else ""
+            header = f"[{label}{tradition_suffix}: {chunk.source_url}]"
             provenance = _provenance_label(chunk)
             if provenance:
                 header += f"\nProvenance: {provenance}"
