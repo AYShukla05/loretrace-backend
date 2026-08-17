@@ -185,6 +185,15 @@ async def generate_answer(
         try:
             return await call()
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 429 or i == len(tiers) - 1:
+            # 429 is the original rate-limit case. 404 is a real incident, not
+            # a hypothetical: Groq retired llama-3.3-70b/llama-3.1-8b entirely
+            # on 2026-08-17 with no warning to this app, and the primary tier
+            # returned 404 instead of 429, propagating as an unhandled error
+            # with a working fallback chain sitting right there unused. Other
+            # 4xx/5xx codes still raise immediately — those indicate a
+            # malformed request or a provider outage, not "this specific
+            # model is gone," and shouldn't be silently masked by falling
+            # through to a different tier.
+            if exc.response.status_code not in (429, 404) or i == len(tiers) - 1:
                 raise
     raise AssertionError("unreachable")
