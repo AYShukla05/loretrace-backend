@@ -219,7 +219,7 @@ def test_generate_answer_falls_back_to_8b_on_rate_limit(monkeypatch):
     assert calls == [settings.groq_model, settings.groq_fallback_model]
 
 
-def test_generate_answer_does_not_fall_back_on_non_rate_limit_error(monkeypatch):
+def test_generate_answer_does_not_fall_back_on_server_error(monkeypatch):
     monkeypatch.setattr(settings, "groq_api_key", "test-key")
     calls = []
 
@@ -233,6 +233,25 @@ def test_generate_answer_does_not_fall_back_on_non_rate_limit_error(monkeypatch)
         run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
 
     assert calls == [settings.groq_model]
+
+
+def test_generate_answer_falls_back_to_8b_on_model_not_found(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        calls.append(model)
+        if model == settings.groq_model:
+            return httpx.Response(404, json={"error": {"code": "model_not_found"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "8b answer"}}]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = run(generate_answer(client, "Who is Achilles?", [make_chunk()]))
+
+    assert result == "8b answer"
+    assert calls == [settings.groq_model, settings.groq_fallback_model]
 
 
 def test_generate_answer_with_explicit_model_skips_fallback(monkeypatch):
