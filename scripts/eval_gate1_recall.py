@@ -1,10 +1,15 @@
-"""Gate 1 recall@k: self-hosted MiniLM embeddings vs. the Voyage AI baseline,
-run against the real ingested corpus. See LoreTrace_Quality_Gates.md Gate 1.
+"""Gate 1 recall@k: the active self-hosted embedding model (app.embedding) vs.
+the Voyage AI baseline, run against the real ingested corpus. See
+LoreTrace_Quality_Gates.md Gate 1.
 
 Ground truth chunk ids were built by grepping the live corpus for distinctive
 phrases and reading each matched chunk in full, not guessed from memory or
 public-benchmark assumptions. A query counts as a hit at k if any of its
 ground-truth chunk ids appear in that embedding's top-k ranked chunks.
+
+Self-hosted results are read directly from Chunk.embedding, so this only
+measures whatever model the corpus was actually ingested with - re-embed the
+corpus first if the self-hosted model has changed since the last ingest.
 
 Re-run whenever the chunking strategy changes (chunk size/overlap affects
 retrieval too), not just once and forgotten.
@@ -170,7 +175,7 @@ async def main() -> None:
     print(f"Corpus: {len(chunk_ids)} active chunks")
 
     query_texts = [q["query"] for q in QUERIES]
-    self_hosted_query_vecs = np.array(embed_texts(query_texts))
+    self_hosted_query_vecs = np.array(embed_texts(query_texts, is_query=True))
     # embed_texts L2-normalizes, and the stored chunk embeddings were produced
     # the same way at ingest time, so a plain dot product is cosine similarity.
     self_hosted_sims = self_hosted_query_vecs @ self_hosted_matrix.T
