@@ -98,7 +98,7 @@ async def retrieve_chunks(
     is relevant enough to answer from, the caller should refuse rather than
     invoke the LLM.
     """
-    (query_embedding,) = await asyncio.to_thread(embed_texts, [query])
+    (query_embedding,) = await asyncio.to_thread(embed_texts, [query], is_query=True)
     stmt = _build_query(query_embedding, top_k, tradition)
 
     rows = await db.execute(stmt)

@@ -11,7 +11,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.source import Source
 
-# sentence-transformers/all-MiniLM-L6-v2 output dimension, see app/embedding.py
+# Must match app.embedding.EMBEDDING_DIM (the active embedding model's output size)
 EMBEDDING_DIM = 384
 
 
