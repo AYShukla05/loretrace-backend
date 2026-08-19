@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import admin_admins, admin_credibility, admin_sources, auth, chat
+from app.api.routes import admin_admins, admin_credibility, admin_sources, auth, chat, users
 from app.core.config import settings
 from app.worker.runner import run_worker
 
@@ -39,6 +39,7 @@ app.include_router(admin_admins.router)
 app.include_router(admin_credibility.router)
 app.include_router(admin_sources.router)
 app.include_router(chat.router)
+app.include_router(users.router)
 
 
 @app.get("/health")

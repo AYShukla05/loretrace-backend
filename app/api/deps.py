@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.admin import Admin
+from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -44,3 +45,29 @@ async def get_current_super_admin(admin: Admin = Depends(get_current_admin)) -> 
             detail="Super admin privileges required",
         )
     return admin
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    credentials_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = decode_access_token(token)
+    except jwt.InvalidTokenError:
+        raise credentials_error from None
+
+    email = payload.get("sub")
+    if email is None:
+        raise credentials_error
+
+    user = await db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_active:
+        raise credentials_error
+
+    return user
