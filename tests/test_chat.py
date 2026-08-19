@@ -2,13 +2,46 @@ import asyncio
 
 from app.api.routes import chat as chat_module
 from app.llm import LLMError
+from app.models.conversation import Conversation
 from app.models.enums import AuthorPosition
+from app.models.user import User
 from app.retrieval import RetrievedChunk
 from app.schemas.chat import ChatRequest
 
 
 def run(coro):
     return asyncio.run(coro)
+
+
+class FakeSession:
+    """Records add()/commit() calls; db.get() returns a preset object.
+
+    Mirrors the FakeSession pattern in tests/test_queue.py. commit() assigns
+    a fake id to anything added that doesn't have one yet, standing in for
+    the real DB's autoincrement.
+    """
+
+    def __init__(self, get_result=None):
+        self.added = []
+        self.commits = 0
+        self._get_result = get_result
+        self._next_id = 100
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        self.commits += 1
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = self._next_id
+                self._next_id += 1
+
+    async def refresh(self, obj):
+        pass
+
+    async def get(self, model, id_):
+        return self._get_result
 
 
 def make_chunk(
@@ -35,11 +68,14 @@ def test_chat_refuses_without_calling_llm_when_retrieval_is_empty(monkeypatch):
     monkeypatch.setattr(chat_module, "retrieve_chunks", empty_retrieve)
     monkeypatch.setattr(chat_module, "generate_answer", fail_generate)
 
-    response = run(chat_module.chat(ChatRequest(question="Who is Loki's mother?"), db=None))
+    response = run(
+        chat_module.chat(ChatRequest(question="Who is Loki's mother?"), db=None, user=None)
+    )
 
     assert response.refused is True
     assert response.answer == chat_module.REFUSAL_MESSAGE
     assert response.sources == []
+    assert response.conversation_id is None
 
 
 def test_chat_returns_answer_and_deduped_sources_on_successful_retrieval(monkeypatch):
@@ -58,7 +94,7 @@ def test_chat_returns_answer_and_deduped_sources_on_successful_retrieval(monkeyp
     monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
     monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
 
-    response = run(chat_module.chat(ChatRequest(question="Who is Zeus?"), db=None))
+    response = run(chat_module.chat(ChatRequest(question="Who is Zeus?"), db=None, user=None))
 
     assert response.refused is False
     assert response.answer == "Zeus is the king of the gods [Source 1]."
@@ -77,7 +113,7 @@ def test_chat_carries_author_position_onto_cited_sources(monkeypatch):
     monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
     monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
 
-    response = run(chat_module.chat(ChatRequest(question="Who is Zeus?"), db=None))
+    response = run(chat_module.chat(ChatRequest(question="Who is Zeus?"), db=None, user=None))
 
     assert response.sources[0].author_position == AuthorPosition.INDIGENOUS_PRIMARY_TEXT
 
@@ -158,3 +194,102 @@ def test_compare_reports_stock_error_without_failing_grounded_side(monkeypatch):
     assert response.grounded.answer == "Zeus is the king of the gods [Source 1]."
     assert response.stock_answer is None
     assert response.stock_error == "stock model request failed: 429"
+
+
+def test_chat_persists_new_conversation_when_user_is_authenticated(monkeypatch):
+    chunks = [make_chunk(1, "https://example.com/a")]
+    user = User(id=7, email="reader@example.com", password_hash="x")
+    db = FakeSession()
+
+    async def fake_retrieve(*args, **kwargs):
+        return chunks
+
+    async def fake_generate(client, query, chunks):
+        return "Zeus is the king of the gods [Source 1]."
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
+    monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
+
+    response = run(chat_module.chat(ChatRequest(question="Who is Zeus?"), db=db, user=user))
+
+    assert response.conversation_id is not None
+    conversations = [obj for obj in db.added if isinstance(obj, Conversation)]
+    messages = [obj for obj in db.added if isinstance(obj, chat_module.Message)]
+    assert len(conversations) == 1
+    assert conversations[0].user_id == 7
+    assert len(messages) == 1
+    assert messages[0].conversation_id == response.conversation_id
+    assert messages[0].question == "Who is Zeus?"
+    assert messages[0].answer == "Zeus is the king of the gods [Source 1]."
+    assert messages[0].refused is False
+    assert messages[0].cited_source_ids == [1]
+
+
+def test_chat_persists_refusal_when_user_is_authenticated(monkeypatch):
+    user = User(id=7, email="reader@example.com", password_hash="x")
+    db = FakeSession()
+
+    async def empty_retrieve(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", empty_retrieve)
+
+    response = run(
+        chat_module.chat(ChatRequest(question="Who is Loki's mother?"), db=db, user=user)
+    )
+
+    assert response.conversation_id is not None
+    messages = [obj for obj in db.added if isinstance(obj, chat_module.Message)]
+    assert len(messages) == 1
+    assert messages[0].refused is True
+    assert messages[0].cited_source_ids == []
+
+
+def test_chat_appends_to_existing_conversation_owned_by_the_user(monkeypatch):
+    chunks = [make_chunk(1, "https://example.com/a")]
+    user = User(id=7, email="reader@example.com", password_hash="x")
+    existing = Conversation(id=42, user_id=7)
+    db = FakeSession(get_result=existing)
+
+    async def fake_retrieve(*args, **kwargs):
+        return chunks
+
+    async def fake_generate(client, query, chunks):
+        return "answer"
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
+    monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
+
+    response = run(
+        chat_module.chat(ChatRequest(question="And Hera?", conversation_id=42), db=db, user=user)
+    )
+
+    assert response.conversation_id == 42
+    conversations = [obj for obj in db.added if isinstance(obj, Conversation)]
+    assert conversations == []  # no new conversation created, only the message
+
+
+def test_chat_rejects_conversation_id_owned_by_another_user(monkeypatch):
+    chunks = [make_chunk(1, "https://example.com/a")]
+    user = User(id=7, email="reader@example.com", password_hash="x")
+    someone_elses = Conversation(id=42, user_id=99)
+    db = FakeSession(get_result=someone_elses)
+
+    async def fake_retrieve(*args, **kwargs):
+        return chunks
+
+    async def fake_generate(client, query, chunks):
+        return "answer"
+
+    monkeypatch.setattr(chat_module, "retrieve_chunks", fake_retrieve)
+    monkeypatch.setattr(chat_module, "generate_answer", fake_generate)
+
+    try:
+        run(
+            chat_module.chat(
+                ChatRequest(question="And Hera?", conversation_id=42), db=db, user=user
+            )
+        )
+        raise AssertionError("expected a 404 for a conversation owned by another user")
+    except chat_module.HTTPException as exc:
+        assert exc.status_code == 404

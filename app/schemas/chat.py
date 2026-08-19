@@ -6,6 +6,9 @@ from app.models.enums import AuthorPosition
 class ChatRequest(BaseModel):
     question: str
     tradition: str | None = None
+    # Set to continue an existing thread (must belong to the authenticated
+    # user); omitted starts a new one. Ignored entirely for anonymous chat.
+    conversation_id: int | None = None
 
 
 class CitedSource(BaseModel):
@@ -19,6 +22,9 @@ class ChatResponse(BaseModel):
     answer: str
     refused: bool
     sources: list[CitedSource]
+    # Set only when the exchange was actually persisted (a logged-in user);
+    # null for anonymous chat, which is never saved.
+    conversation_id: int | None = None
 
 
 class CompareResponse(BaseModel):
