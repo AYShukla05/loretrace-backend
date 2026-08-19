@@ -10,6 +10,9 @@ from app.models.admin import Admin
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# auto_error=False: /chat stays usable with no login at all (see
+# get_current_user_optional below); a hard-401ing scheme would break that.
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login", auto_error=False)
 
 
 async def get_current_admin(
@@ -69,5 +72,31 @@ async def get_current_user(
     user = await db.scalar(select(User).where(User.email == email))
     if user is None or not user.is_active:
         raise credentials_error
+
+    return user
+
+
+# Chat stays anonymous-first per the project's own account-scoping decision:
+# a missing or invalid token means "not logged in", never a 401. Only a
+# valid, active user's token unlocks chat-history persistence.
+async def get_current_user_optional(
+    token: str | None = Depends(optional_oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    if token is None:
+        return None
+
+    try:
+        payload = decode_access_token(token)
+    except jwt.InvalidTokenError:
+        return None
+
+    email = payload.get("sub")
+    if email is None:
+        return None
+
+    user = await db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_active:
+        return None
 
     return user
