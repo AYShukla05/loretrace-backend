@@ -32,6 +32,7 @@ def _build_cited_sources(chunks: list[RetrievedChunk]) -> list[CitedSource]:
                 source_url=chunk.source_url,
                 tradition=chunk.tradition,
                 author_position=chunk.author_position,
+                title=chunk.title,
             )
         )
     return sources

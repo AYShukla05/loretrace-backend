@@ -28,6 +28,7 @@ async def _hydrate_sources(db: AsyncSession, messages: list[Message]) -> dict[in
             source_url=source.url,
             tradition=source.tradition,
             author_position=source.author_position,
+            title=source.title,
         )
         for source in sources
     }
