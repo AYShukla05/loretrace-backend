@@ -16,6 +16,7 @@ class CitedSource(BaseModel):
     source_url: str
     tradition: str | None
     author_position: AuthorPosition | None
+    title: str | None
 
 
 class ChatResponse(BaseModel):
