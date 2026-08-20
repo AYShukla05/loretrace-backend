@@ -94,6 +94,26 @@ async def list_sources(
     return [_to_read(source, chunk_count) for source, chunk_count in rows.all()]
 
 
+@router.get("/traditions", response_model=list[str])
+async def admin_traditions(
+    admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Every distinct tradition value on any source, regardless of chunk
+    state. Unlike GET /chat/traditions (which only offers a tradition that
+    would actually retrieve something for a public chat query), this backs
+    an admin-side autocomplete, so a tradition an admin already used should
+    show up here even before its source finishes scraping.
+    """
+    rows = await db.execute(
+        select(Source.tradition)
+        .where(Source.tradition.is_not(None))
+        .distinct()
+        .order_by(Source.tradition)
+    )
+    return [row[0] for row in rows.all()]
+
+
 @router.patch("/{source_id}", response_model=SourceRead)
 async def update_source(
     source_id: int,
