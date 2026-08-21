@@ -18,10 +18,19 @@ _PROVENANCE_PRIORITY = {
 }
 
 # Cosine distance from pgvector's `<=>` operator: 0 is identical, 1 is
-# orthogonal, 2 is opposite. Provisional cutoff, not yet validated against
-# Gate 2's leakage-check probes in LoreTrace_Quality_Gates.md — retune once
-# that eval exists.
-RELEVANCE_THRESHOLD = 0.65
+# orthogonal, 2 is opposite. Tuned against real production data
+# (LoreTrace_RelevanceThreshold_Tuning_Results.md, 2026-08-22): recall
+# against Gate 1's 12 ground-truth queries plateaus at 8/12 from 0.35
+# upward, so this costs no recall versus the already-accepted 0.65
+# baseline, while cutting a 12-probe leakage sweep's pass-through rate
+# from 12/12 down to 3/12. The 3 that remain are all generic,
+# no-tradition-named, thematically-adjacent queries (e.g. "flood myths
+# across cultures") that sit close to real Norse content in embedding
+# space for a structural reason, not a tuning gap — no single distance
+# cutoff separates them without destroying recall. That residual is a
+# documented, accepted limitation (see the results doc and
+# LoreTrace_Quality_Gates.md Gate 2), not fully closed by this value.
+RELEVANCE_THRESHOLD = 0.35
 DEFAULT_TOP_K = 5
 
 
