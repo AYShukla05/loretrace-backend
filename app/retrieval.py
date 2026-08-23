@@ -35,6 +35,13 @@ DEFAULT_TOP_K = 5
 
 
 @dataclass(frozen=True)
+class CorpusEntry:
+    tradition: str
+    title: str | None
+    url: str
+
+
+@dataclass(frozen=True)
 class RetrievedChunk:
     chunk_id: int
     source_id: int
@@ -93,6 +100,31 @@ async def list_traditions(db: AsyncSession) -> list[str]:
     stmt = _build_traditions_query()
     rows = await db.execute(stmt)
     return [row[0] for row in rows.all()]
+
+
+def _build_corpus_query() -> Select:
+    return (
+        select(Source.tradition, Source.title, Source.url)
+        .join(Chunk, Chunk.source_id == Source.id)
+        .where(Source.tradition.is_not(None), Chunk.is_active.is_(True))
+        .distinct()
+        .order_by(Source.tradition, Source.title)
+    )
+
+
+async def list_corpus(db: AsyncSession) -> list[CorpusEntry]:
+    """Every source with at least one retrievable chunk, as flat
+    (tradition, title, url) rows ordered by tradition then title. The chat
+    landing groups these so a first-time visitor sees exactly which
+    traditions and texts the corpus can answer from, rather than guessing
+    at coverage one question at a time. Same only-advertise-what-retrieves
+    rule as list_traditions.
+    """
+    rows = await db.execute(_build_corpus_query())
+    return [
+        CorpusEntry(tradition=tradition, title=title, url=url)
+        for tradition, title, url in rows.all()
+    ]
 
 
 async def retrieve_chunks(

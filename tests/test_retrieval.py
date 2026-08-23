@@ -4,6 +4,7 @@ from app.models.enums import AuthorPosition
 from app.retrieval import (
     RELEVANCE_THRESHOLD,
     RetrievedChunk,
+    _build_corpus_query,
     _build_query,
     _build_traditions_query,
     _sort_by_provenance,
@@ -105,3 +106,16 @@ def test_build_traditions_query_only_counts_active_chunks():
     assert "sources.tradition IS NOT NULL" in compiled
     assert "DISTINCT" in compiled
     assert "ORDER BY" in compiled
+
+
+def test_build_corpus_query_only_includes_sources_with_active_chunks():
+    stmt = _build_corpus_query()
+    compiled = str(
+        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+    assert "JOIN chunks ON chunks.source_id = sources.id" in compiled
+    assert "chunks.is_active IS true" in compiled
+    assert "sources.tradition IS NOT NULL" in compiled
+    assert "DISTINCT" in compiled
+    assert "ORDER BY sources.tradition, sources.title" in compiled

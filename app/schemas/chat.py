@@ -33,3 +33,18 @@ class CompareResponse(BaseModel):
     stock_answer: str | None
     stock_error: str | None
     grounded: ChatResponse
+
+
+class CorpusText(BaseModel):
+    title: str | None
+    url: str
+
+
+class CorpusTradition(BaseModel):
+    tradition: str
+    texts: list[CorpusText]
+
+
+class CorpusOverview(BaseModel):
+    traditions: list[CorpusTradition]
+    text_count: int

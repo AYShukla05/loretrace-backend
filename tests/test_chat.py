@@ -5,7 +5,7 @@ from app.llm import LLMError
 from app.models.conversation import Conversation
 from app.models.enums import AuthorPosition
 from app.models.user import User
-from app.retrieval import RetrievedChunk
+from app.retrieval import CorpusEntry, RetrievedChunk
 from app.schemas.chat import ChatRequest
 
 
@@ -127,6 +127,24 @@ def test_traditions_route_returns_list_traditions_result(monkeypatch):
     result = run(chat_module.traditions(db=None))
 
     assert result == ["greek", "norse"]
+
+
+def test_corpus_route_groups_entries_by_tradition(monkeypatch):
+    async def fake_list_corpus(db):
+        return [
+            CorpusEntry(tradition="Norse", title="Poetic Edda", url="https://example.com/pe"),
+            CorpusEntry(tradition="Norse", title="Prose Edda", url="https://example.com/prose"),
+            CorpusEntry(tradition="Greek", title=None, url="https://example.com/g"),
+        ]
+
+    monkeypatch.setattr(chat_module, "list_corpus", fake_list_corpus)
+
+    result = run(chat_module.corpus(db=None))
+
+    assert result.text_count == 3
+    assert [t.tradition for t in result.traditions] == ["Norse", "Greek"]
+    assert [text.title for text in result.traditions[0].texts] == ["Poetic Edda", "Prose Edda"]
+    assert result.traditions[1].texts[0].title is None
 
 
 def test_compare_returns_both_stock_and_grounded_answers_on_success(monkeypatch):

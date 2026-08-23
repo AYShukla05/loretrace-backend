@@ -1,3 +1,5 @@
+from itertools import groupby
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,8 +10,16 @@ from app.llm import LLMError, generate_answer, generate_stock_answer
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
-from app.retrieval import RetrievedChunk, list_traditions, retrieve_chunks
-from app.schemas.chat import ChatRequest, ChatResponse, CitedSource, CompareResponse
+from app.retrieval import RetrievedChunk, list_corpus, list_traditions, retrieve_chunks
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    CitedSource,
+    CompareResponse,
+    CorpusOverview,
+    CorpusText,
+    CorpusTradition,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -84,6 +94,19 @@ async def _persist_message(
 @router.get("/traditions", response_model=list[str])
 async def traditions(db: AsyncSession = Depends(get_db)) -> list[str]:
     return await list_traditions(db)
+
+
+@router.get("/corpus", response_model=CorpusOverview)
+async def corpus(db: AsyncSession = Depends(get_db)) -> CorpusOverview:
+    entries = await list_corpus(db)
+    grouped = [
+        CorpusTradition(
+            tradition=tradition,
+            texts=[CorpusText(title=entry.title, url=entry.url) for entry in group],
+        )
+        for tradition, group in groupby(entries, key=lambda entry: entry.tradition)
+    ]
+    return CorpusOverview(traditions=grouped, text_count=sum(len(t.texts) for t in grouped))
 
 
 @router.post("", response_model=ChatResponse)
