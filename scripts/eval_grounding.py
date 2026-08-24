@@ -36,9 +36,18 @@ requests/min and 8,000 tokens/min ceilings and to not starve real /chat traffic
 sharing the same key. Confirm before running anyway, same as any other live-API
 action in this project.
 
-Run with:
+Two modes:
 
-    python scripts/eval_grounding.py
+    python scripts/eval_grounding.py          # offline divergence probes (above)
+    python scripts/eval_grounding.py --live   # live end-to-end faithfulness pass
+
+The --live mode is the other half of Gate 6. It runs the real production path
+- retrieve_chunks against live Neon, then generate_answer through the real
+fallback chain - for Gate 1's 12 ground-truth queries, then judges each answer
+against the chunks that were actually retrieved. It answers a different
+question: given real (sometimes imperfect) retrieved context, does the answer
+stay inside it? Read-only against Neon; no writes, no corpus change, no app/
+change. Same free-tier Groq cost profile as the offline mode.
 """
 
 import asyncio
@@ -52,7 +61,7 @@ import httpx
 
 from app.core.config import settings
 from app.llm import LLMError, _call_groq, _format_context, generate_answer
-from app.retrieval import RetrievedChunk
+from app.retrieval import RetrievedChunk, retrieve_chunks
 
 if hasattr(sys.stdout, "reconfigure"):
     # Norse names and Groq's typographic punctuation both trip the Windows
@@ -448,13 +457,78 @@ def print_summary(rows: list[dict]) -> None:
     )
 
 
+async def run_live_faithfulness(client: httpx.AsyncClient) -> None:
+    """Gate 6's live half: real retrieval + real answer + judge, for the Gate 1
+    ground-truth queries. Retrieval runs first with the DB session open only
+    briefly, then the slow Groq work happens with no Neon connection held (same
+    discipline as the re-embed and Gate 1 scripts).
+    """
+    from app.db.session import async_session
+    from scripts.eval_gate1_recall import QUERIES as RETRIEVAL_QUERIES
+
+    print(f"\n{'=' * 70}\nLIVE FAITHFULNESS (real retrieve_chunks + generate_answer)\n{'=' * 70}")
+
+    retrieved: list[tuple[str, list[RetrievedChunk]]] = []
+    async with async_session() as db:
+        for q in RETRIEVAL_QUERIES:
+            retrieved.append((q["query"], await retrieve_chunks(db, q["query"])))
+
+    grounded_ok = 0
+    refused = 0
+    answered = 0
+    for question, chunks in retrieved:
+        print(f"\n--- {question[:90]} ---")
+        if not chunks:
+            refused += 1
+            print("Result: REFUSED (empty retrieval) - grounded by construction")
+            continue
+
+        answered += 1
+        try:
+            answer = await _paced(
+                f"answer/{question[:30]}",
+                lambda q=question, c=chunks: generate_answer(client, q, c),
+            )
+            judged = await _paced(
+                f"judge/{question[:30]}",
+                lambda c=chunks, a=answer: judge_grounded(client, TIERS[0][1], a, c),
+            )
+        except (LLMError, httpx.HTTPStatusError) as exc:
+            print(f"Result: LLM ERROR - {exc}")
+            continue
+
+        if judged["grounded"] is True:
+            grounded_ok += 1
+        sources = sorted({c.title or c.source_url for c in chunks})
+        print(f"Sources retrieved: {sources}")
+        print(f"Answer:\n{answer}")
+        print(
+            f"Judge: grounded={judged['grounded']} "
+            f"(supported={judged['supported']}, unsupported={judged['unsupported']})"
+        )
+
+    print(f"\n{'=' * 70}\nSUMMARY\n{'=' * 70}")
+    print(f"queries           : {len(retrieved)}")
+    print(f"refused (empty)    : {refused}")
+    print(f"answered           : {answered}")
+    print(f"judged grounded    : {grounded_ok}/{answered}")
+    print(
+        "\nHow to read this: a low grounded count means answers are drifting "
+        "past what retrieval actually returned - either into pretraining or "
+        "into unsupported synthesis. Empty-retrieval refusals are grounded by "
+        "construction and not counted against the rate."
+    )
+
+
 async def main() -> None:
     if not settings.groq_api_key:
         print("GROQ_API_KEY is not set; cannot run.")
         return
     async with httpx.AsyncClient() as client:
-        rows = await evaluate(client)
-    print_summary(rows)
+        if "--live" in sys.argv:
+            await run_live_faithfulness(client)
+        else:
+            print_summary(await evaluate(client))
 
 
 if __name__ == "__main__":
