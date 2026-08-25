@@ -93,6 +93,17 @@ def test_parse_judge_reads_bare_json():
     assert parsed["unsupported"] == 1
 
 
+def test_parse_judge_keeps_the_unsupported_claim_texts():
+    raw = (
+        '{"claims": ['
+        '{"text": "Odin has three ravens", "verdict": "SUPPORTED"}, '
+        '{"text": "The Fjalgrim Codex is an old Norse collection", "verdict": "UNSUPPORTED"}'
+        '], "grounded": false}'
+    )
+    parsed = _parse_judge(raw)
+    assert parsed["unsupported_claims"] == ["The Fjalgrim Codex is an old Norse collection"]
+
+
 def test_parse_judge_extracts_json_from_surrounding_prose():
     raw = 'Here is my assessment:\n{"claims": [], "grounded": true}\nThat is all.'
     assert _parse_judge(raw)["grounded"] is True
@@ -102,6 +113,7 @@ def test_parse_judge_handles_non_json_without_raising():
     parsed = _parse_judge("I cannot produce JSON for this.")
     assert parsed["grounded"] is None
     assert parsed["supported"] == 0
+    assert parsed["unsupported_claims"] == []
 
 
 def test_judge_grounded_posts_answer_and_excerpts(monkeypatch):

@@ -341,15 +341,25 @@ def _parse_judge(raw: str) -> dict:
         end = raw.rindex("}")
         data = json.loads(raw[start : end + 1])
     except (ValueError, json.JSONDecodeError):
-        return {"grounded": None, "supported": 0, "unsupported": 0, "raw": raw}
+        return {
+            "grounded": None,
+            "supported": 0,
+            "unsupported": 0,
+            "unsupported_claims": [],
+            "raw": raw,
+        }
 
     claims = data.get("claims") or []
-    supported = sum(1 for c in claims if str(c.get("verdict", "")).upper() == "SUPPORTED")
-    unsupported = sum(1 for c in claims if str(c.get("verdict", "")).upper() == "UNSUPPORTED")
+    supported = [c for c in claims if str(c.get("verdict", "")).upper() == "SUPPORTED"]
+    unsupported = [c for c in claims if str(c.get("verdict", "")).upper() == "UNSUPPORTED"]
     return {
         "grounded": data.get("grounded"),
-        "supported": supported,
-        "unsupported": unsupported,
+        "supported": len(supported),
+        "unsupported": len(unsupported),
+        # Keep the flagged claim text, not just the count, so a "not grounded"
+        # verdict says what the judge actually objected to instead of leaving
+        # it to be inferred from the answer.
+        "unsupported_claims": [str(c.get("text", "")).strip() for c in unsupported],
         "raw": raw,
     }
 
@@ -367,6 +377,16 @@ async def judge_grounded(
     ]
     raw = await _call_groq(client, model, messages)
     return _parse_judge(raw)
+
+
+def _print_judge(judged: dict) -> None:
+    print(
+        f"Judge: grounded={judged['grounded']} "
+        f"(supported={judged['supported']}, unsupported={judged['unsupported']})"
+    )
+    for claim in judged.get("unsupported_claims", []):
+        if claim:
+            print(f"  unsupported: {claim}")
 
 
 async def _paced(label: str, make_call):
@@ -417,10 +437,7 @@ async def evaluate(client: httpx.AsyncClient) -> list[dict]:
             verdict = classify(answer, probe)
             print(f"Answer:\n{answer}")
             print(f"Marker verdict: {verdict.upper()}")
-            print(
-                f"Judge: grounded={judged['grounded']} "
-                f"(supported={judged['supported']}, unsupported={judged['unsupported']})"
-            )
+            _print_judge(judged)
             row.update(verdict=verdict, judge=judged["grounded"])
             rows.append(row)
     return rows
@@ -502,10 +519,7 @@ async def run_live_faithfulness(client: httpx.AsyncClient) -> None:
         sources = sorted({c.title or c.source_url for c in chunks})
         print(f"Sources retrieved: {sources}")
         print(f"Answer:\n{answer}")
-        print(
-            f"Judge: grounded={judged['grounded']} "
-            f"(supported={judged['supported']}, unsupported={judged['unsupported']})"
-        )
+        _print_judge(judged)
 
     print(f"\n{'=' * 70}\nSUMMARY\n{'=' * 70}")
     print(f"queries           : {len(retrieved)}")
