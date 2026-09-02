@@ -8,6 +8,7 @@ from app.embedding import embed_texts
 from app.models.chunk import Chunk
 from app.models.enums import AuthorPosition, Era, TextRole
 from app.models.source import Source
+from app.theonyms import expand_query
 
 # Bias Mitigation Plan Part 2: default ordering (not filtering) prefers
 # indigenous primary sources when present. Everything else, including
@@ -138,8 +139,15 @@ async def retrieve_chunks(
     indigenous primary sources. An empty result means nothing in the corpus
     is relevant enough to answer from, the caller should refuse rather than
     invoke the LLM.
+
+    The query is first passed through app.theonyms.expand_query so a
+    question phrased in one text's vocabulary (e.g. "Aphrodite", "Zeus")
+    can still reach a sibling text that uses the other names ("Venus",
+    "Jove"). No-op unless the tradition has a theonym table and a grouped
+    name appears.
     """
-    (query_embedding,) = await asyncio.to_thread(embed_texts, [query], is_query=True)
+    expanded = expand_query(query, tradition)
+    (query_embedding,) = await asyncio.to_thread(embed_texts, [expanded], is_query=True)
     stmt = _build_query(query_embedding, top_k, tradition)
 
     rows = await db.execute(stmt)
