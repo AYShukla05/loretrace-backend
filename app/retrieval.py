@@ -1,4 +1,5 @@
 import asyncio
+from collections import Counter
 from dataclasses import dataclass
 
 from sqlalchemy import Select, select
@@ -34,6 +35,21 @@ _PROVENANCE_PRIORITY = {
 RELEVANCE_THRESHOLD = 0.35
 DEFAULT_TOP_K = 5
 
+# A source with nothing in the primary band (within RELEVANCE_THRESHOLD)
+# may still contribute its single best chunk if within this looser
+# distance, so a question one text answers head-on and another only
+# touches in passing still surfaces both. Without it, whichever text
+# matches the query's vocabulary can crowd the others out of top_k
+# entirely and a real disagreement between sources never appears. See
+# LoreTrace_Greek_Retrieval_Characterization.md.
+SOURCE_FLOOR_DISTANCE = 0.5
+# No single source may occupy more than this many of the primary-band
+# slots, so one vocabulary-matched text cannot monopolise the answer.
+MAX_CHUNKS_PER_SOURCE = 3
+# At most this many otherwise-unrepresented sources get a floor chunk.
+MAX_FLOOR_SOURCES = 3
+_CANDIDATE_POOL_SIZE = 100
+
 
 @dataclass(frozen=True)
 class CorpusEntry:
@@ -57,18 +73,62 @@ class RetrievedChunk:
     title: str | None = None
 
 
-def _build_query(query_embedding: list[float], top_k: int, tradition: str | None) -> Select:
+def _build_candidate_query(query_embedding: list[float], tradition: str | None) -> Select:
+    """The candidate pool for _select_with_source_floor: active chunks
+    within the looser SOURCE_FLOOR_DISTANCE, closest first. Selection down
+    to the primary RELEVANCE_THRESHOLD and top_k happens in Python so the
+    per-source cap and the floor pass can see the whole pool.
+    """
     distance = Chunk.embedding.cosine_distance(query_embedding)
     stmt = (
         select(Chunk, Source, distance.label("distance"))
         .join(Source, Chunk.source_id == Source.id)
-        .where(Chunk.is_active.is_(True), distance <= RELEVANCE_THRESHOLD)
+        .where(Chunk.is_active.is_(True), distance <= SOURCE_FLOOR_DISTANCE)
         .order_by(distance)
-        .limit(top_k)
+        .limit(_CANDIDATE_POOL_SIZE)
     )
     if tradition is not None:
         stmt = stmt.where(Source.tradition == tradition)
     return stmt
+
+
+def _select_with_source_floor(candidates: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+    """From a distance-ordered candidate pool, take up to top_k chunks
+    within RELEVANCE_THRESHOLD with no more than MAX_CHUNKS_PER_SOURCE from
+    any one source, then let up to MAX_FLOOR_SOURCES otherwise-unrepresented
+    sources add their single best chunk from the looser band.
+
+    An empty primary band means refuse: the floor never turns a query that
+    nothing answers within RELEVANCE_THRESHOLD into one that gets an answer,
+    so the leakage-refusal boundary is unchanged.
+    """
+    primary = [c for c in candidates if c.distance <= RELEVANCE_THRESHOLD]
+    if not primary:
+        return []
+
+    selected: list[RetrievedChunk] = []
+    per_source: Counter[int] = Counter()
+    for chunk in primary:  # candidates arrive closest-first
+        if len(selected) >= top_k:
+            break
+        if per_source[chunk.source_id] >= MAX_CHUNKS_PER_SOURCE:
+            continue
+        selected.append(chunk)
+        per_source[chunk.source_id] += 1
+
+    represented = {c.source_id for c in selected}
+    floor_added = 0
+    for chunk in candidates:  # first appearance of a source is its best chunk
+        if floor_added >= MAX_FLOOR_SOURCES:
+            break
+        if chunk.source_id in represented:
+            continue
+        selected.append(chunk)
+        represented.add(chunk.source_id)
+        floor_added += 1
+
+    selected.sort(key=lambda c: c.distance)
+    return selected
 
 
 def _provenance_rank(chunk: RetrievedChunk) -> int:
@@ -145,13 +205,17 @@ async def retrieve_chunks(
     can still reach a sibling text that uses the other names ("Venus",
     "Jove"). No-op unless the tradition has a theonym table and a grouped
     name appears.
+
+    Selection applies a per-source cap and a floor for unrepresented
+    sources (see _select_with_source_floor) so one text cannot crowd the
+    others out of the answer.
     """
     expanded = expand_query(query, tradition)
     (query_embedding,) = await asyncio.to_thread(embed_texts, [expanded], is_query=True)
-    stmt = _build_query(query_embedding, top_k, tradition)
+    stmt = _build_candidate_query(query_embedding, tradition)
 
     rows = await db.execute(stmt)
-    chunks = [
+    candidates = [
         RetrievedChunk(
             chunk_id=chunk.id,
             source_id=source.id,
@@ -167,4 +231,4 @@ async def retrieve_chunks(
         )
         for chunk, source, distance in rows.all()
     ]
-    return _sort_by_provenance(chunks)
+    return _sort_by_provenance(_select_with_source_floor(candidates, top_k))
