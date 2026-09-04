@@ -10,6 +10,7 @@ from app.embedding import embed_texts
 from app.models.chunk import Chunk
 from app.models.source import Source
 from app.scraping.fetch import NotModifiedError, fetch_source_text
+from app.works import assign_work_titles
 
 
 async def process_source(source: Source, db: AsyncSession) -> bool:
@@ -37,7 +38,12 @@ async def process_source(source: Source, db: AsyncSession) -> bool:
         return False
 
     chunk_texts = split_into_chunks(fetch_result.text)
+    work_titles = assign_work_titles(fetch_result.text, chunk_texts, source.url)
     hash_to_text = {hash_text(text): text for text in chunk_texts}
+    hash_to_work = {
+        hash_text(text): work_title
+        for text, work_title in zip(chunk_texts, work_titles, strict=True)
+    }
 
     existing = await db.execute(
         select(Chunk).where(Chunk.source_id == source.id, Chunk.is_active.is_(True))
@@ -59,6 +65,7 @@ async def process_source(source: Source, db: AsyncSession) -> bool:
                     chunk_text=hash_to_text[chunk_hash],
                     chunk_hash=chunk_hash,
                     embedding=embedding,
+                    work_title=hash_to_work[chunk_hash],
                 )
             )
 
