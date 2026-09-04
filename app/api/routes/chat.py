@@ -30,12 +30,16 @@ REFUSAL_MESSAGE = "The corpus doesn't have any sources relevant enough to answer
 
 
 def _build_cited_sources(chunks: list[RetrievedChunk]) -> list[CitedSource]:
-    seen_source_ids: set[int] = set()
+    # Keyed by (source_id, work_title): a single-work source still yields
+    # one pill, but two distinct works from the same bundled volume are
+    # cited separately.
+    seen: set[tuple[int, str | None]] = set()
     sources = []
     for chunk in chunks:
-        if chunk.source_id in seen_source_ids:
+        key = (chunk.source_id, chunk.work_title)
+        if key in seen:
             continue
-        seen_source_ids.add(chunk.source_id)
+        seen.add(key)
         sources.append(
             CitedSource(
                 source_id=chunk.source_id,
@@ -43,6 +47,7 @@ def _build_cited_sources(chunks: list[RetrievedChunk]) -> list[CitedSource]:
                 tradition=chunk.tradition,
                 author_position=chunk.author_position,
                 title=chunk.title,
+                work_title=chunk.work_title,
             )
         )
     return sources
@@ -84,7 +89,9 @@ async def _persist_message(
         question=payload.question,
         answer=response.answer,
         refused=response.refused,
-        cited_source_ids=[source.source_id for source in response.sources],
+        # Distinct source ids in citation order: two works from one volume
+        # are two CitedSources but the history only tracks sources.
+        cited_source_ids=list(dict.fromkeys(source.source_id for source in response.sources)),
     )
     db.add(message)
     await db.commit()

@@ -73,7 +73,13 @@ def _source_label(chunk: RetrievedChunk) -> str:
     have a title now that scraping infers one (see app/scraping/fetch.py),
     but older or manually-added sources may not, so a plain description is
     the fallback rather than a hard requirement.
+
+    A chunk from a multi-work volume carries the specific work it belongs
+    to; that is what the reader needs cited (the "Theogony", not "Hesiod,
+    the Homeric Hymns, and Homerica"), so it wins over the container title.
     """
+    if chunk.work_title:
+        return chunk.work_title
     if chunk.title:
         return chunk.title
     if chunk.tradition:
@@ -82,26 +88,30 @@ def _source_label(chunk: RetrievedChunk) -> str:
 
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
-    """Groups excerpts by source_id, not by chunk: a multi-excerpt retrieval
-    from a single source (the common case once a corpus has few sources with
-    many chunks each) previously numbered every chunk as its own "Source N"
-    with a repeated, identical provenance line, which read as several
-    different sources to both the model and the reader.
+    """Groups excerpts by (source_id, work_title), not by chunk: a
+    multi-excerpt retrieval from one source previously numbered every chunk
+    as its own "Source N" with a repeated provenance line, which read as
+    several different sources. Two works from the same bundled volume
+    (Theogony vs. a Homeric Hymn) still get separate blocks so a
+    disagreement between them reads as one, not as a single source
+    contradicting itself.
     """
-    order: list[int] = []
-    blocks: dict[int, list[str]] = {}
+    order: list[tuple[int, str | None]] = []
+    blocks: dict[tuple[int, str | None], list[str]] = {}
     for chunk in chunks:
-        if chunk.source_id not in blocks:
-            order.append(chunk.source_id)
+        key = (chunk.source_id, chunk.work_title)
+        if key not in blocks:
+            order.append(key)
             label = _source_label(chunk)
-            tradition_suffix = f" ({chunk.tradition})" if chunk.tradition and chunk.title else ""
+            has_name = bool(chunk.work_title or chunk.title)
+            tradition_suffix = f" ({chunk.tradition})" if chunk.tradition and has_name else ""
             header = f"[{label}{tradition_suffix}: {chunk.source_url}]"
             provenance = _provenance_label(chunk)
             if provenance:
                 header += f"\nProvenance: {provenance}"
-            blocks[chunk.source_id] = [header]
-        blocks[chunk.source_id].append(chunk.chunk_text)
-    return "\n\n".join("\n".join(blocks[source_id]) for source_id in order)
+            blocks[key] = [header]
+        blocks[key].append(chunk.chunk_text)
+    return "\n\n".join("\n".join(blocks[key]) for key in order)
 
 
 async def _call_groq(client: httpx.AsyncClient, model: str, messages: list[dict]) -> str:

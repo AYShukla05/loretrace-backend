@@ -71,6 +71,9 @@ class RetrievedChunk:
     text_role: TextRole | None = None
     known_bias_flags: str | None = None
     title: str | None = None
+    # The specific work within a multi-work volume (Source.title is the
+    # container). None for a single-work source; see app/works.py.
+    work_title: str | None = None
 
 
 def _build_candidate_query(query_embedding: list[float], tradition: str | None) -> Select:
@@ -228,6 +231,7 @@ async def retrieve_chunks(
             text_role=source.text_role,
             known_bias_flags=source.known_bias_flags,
             title=source.title,
+            work_title=chunk.work_title,
         )
         for chunk, source, distance in rows.all()
     ]

@@ -77,6 +77,11 @@ def test_source_label_falls_back_to_generic_when_untitled_and_no_tradition():
     assert _source_label(chunk) == "an untitled source"
 
 
+def test_source_label_prefers_work_title_over_container_title():
+    chunk = make_chunk(title="Hesiod, the Homeric Hymns, and Homerica", work_title="Theogony")
+    assert _source_label(chunk) == "Theogony"
+
+
 def test_format_context_cites_by_title_not_a_source_number():
     context = _format_context([make_chunk(title="The poetic Edda")])
 
@@ -148,6 +153,31 @@ def test_format_context_labels_distinct_sources_once_each():
     assert context.count("[The poetic Edda") == 1
     assert context.count("[The Odyssey") == 1
     assert "https://example.com/odyssey" in context
+
+
+def test_format_context_labels_works_from_one_volume_separately():
+    theogony = make_chunk(
+        chunk_id=1,
+        source_id=1,
+        title="Hesiod, the Homeric Hymns, and Homerica",
+        work_title="Theogony",
+        chunk_text="She is the foam-born goddess.",
+    )
+    hymn = make_chunk(
+        chunk_id=2,
+        source_id=1,
+        title="Hesiod, the Homeric Hymns, and Homerica",
+        work_title="Homeric Hymn 5 to Aphrodite",
+        chunk_text="Aphrodite the daughter of Zeus.",
+    )
+
+    context = _format_context([theogony, hymn])
+
+    assert "[Theogony (greek)" in context
+    assert "[Homeric Hymn 5 to Aphrodite (greek)" in context
+    assert "[Hesiod, the Homeric Hymns" not in context
+    assert "She is the foam-born goddess." in context
+    assert "Aphrodite the daughter of Zeus." in context
 
 
 def test_format_context_repeats_provenance_only_once_per_source():

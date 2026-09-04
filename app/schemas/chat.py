@@ -17,6 +17,11 @@ class CitedSource(BaseModel):
     tradition: str | None
     author_position: AuthorPosition | None
     title: str | None
+    # The specific work cited within a multi-work volume, when the source is
+    # one. None for a single-work source (cite by title). Saved chat history
+    # only records source ids, so a rebuilt historical citation leaves this
+    # null even if the live answer had it.
+    work_title: str | None = None
 
 
 class ChatResponse(BaseModel):
