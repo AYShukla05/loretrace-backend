@@ -46,6 +46,11 @@ def test_system_prompt_requires_attributed_disagreement():
     assert "tell each version separately" in SYSTEM_PROMPT
 
 
+def test_system_prompt_requires_checking_for_disagreement_before_answering():
+    assert "check whether the excerpts disagree with each other" in SYSTEM_PROMPT
+    assert "speak for all of them" in SYSTEM_PROMPT
+
+
 def test_system_prompt_requires_naming_sources_in_prose():
     assert "Name where a story comes from in plain language, not a citation number" in SYSTEM_PROMPT
 
