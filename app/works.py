@@ -162,6 +162,34 @@ def _chunk_offset(chunk_text: str, text: str, search_from: int) -> int:
     return match.start() if match else -1
 
 
+def label_chunks(
+    text: str, chunk_texts: list[str], boundaries: list[tuple[int, str | None]]
+) -> list[str | None]:
+    """Give each chunk the label of the last boundary at or before where its
+    text starts in `text`. `boundaries` is (char offset, label) pairs,
+    offset-sorted, the first at offset 0. A chunk whose opening words can't
+    be located keeps the previous chunk's label.
+
+    Shared by assign_work_titles here and app.chapters.assign_chunk_traditions,
+    which differ only in what the boundaries mean.
+    """
+    offsets = [offset for offset, _ in boundaries]
+    labels = [label for _, label in boundaries]
+
+    result: list[str | None] = []
+    cursor = 0
+    last = labels[0]
+    for chunk_text in chunk_texts:
+        position = _chunk_offset(chunk_text, text, cursor)
+        if position == -1:
+            result.append(last)
+            continue
+        cursor = position
+        last = labels[bisect_right(offsets, position) - 1]
+        result.append(last)
+    return result
+
+
 def assign_work_titles(text: str, chunk_texts: list[str], source_url: str) -> list[str | None]:
     """One work_title (or None) per chunk, in the given order. None for a
     source whose ebook id has no table here, i.e. a single-work source.
@@ -171,19 +199,4 @@ def assign_work_titles(text: str, chunk_texts: list[str], source_url: str) -> li
     if markers is None:
         return [None] * len(chunk_texts)
 
-    boundaries = _boundaries(text, markers)
-    offsets = [offset for offset, _ in boundaries]
-    titles = [title for _, title in boundaries]
-
-    result: list[str | None] = []
-    cursor = 0
-    last_title = titles[0]
-    for chunk_text in chunk_texts:
-        position = _chunk_offset(chunk_text, text, cursor)
-        if position == -1:
-            result.append(last_title)
-            continue
-        cursor = position
-        last_title = titles[bisect_right(offsets, position) - 1]
-        result.append(last_title)
-    return result
+    return label_chunks(text, chunk_texts, _boundaries(text, markers))

@@ -4,6 +4,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chapters import assign_chunk_traditions
 from app.chunking import split_into_chunks
 from app.dedup import content_unchanged, diff_chunks, hash_text
 from app.embedding import embed_texts
@@ -39,10 +40,15 @@ async def process_source(source: Source, db: AsyncSession) -> bool:
 
     chunk_texts = split_into_chunks(fetch_result.text)
     work_titles = assign_work_titles(fetch_result.text, chunk_texts, source.url)
+    chunk_traditions = assign_chunk_traditions(fetch_result.text, chunk_texts, source.url)
     hash_to_text = {hash_text(text): text for text in chunk_texts}
     hash_to_work = {
         hash_text(text): work_title
         for text, work_title in zip(chunk_texts, work_titles, strict=True)
+    }
+    hash_to_tradition = {
+        hash_text(text): tradition
+        for text, tradition in zip(chunk_texts, chunk_traditions, strict=True)
     }
 
     existing = await db.execute(
@@ -66,6 +72,7 @@ async def process_source(source: Source, db: AsyncSession) -> bool:
                     chunk_hash=chunk_hash,
                     embedding=embedding,
                     work_title=hash_to_work[chunk_hash],
+                    tradition=hash_to_tradition[chunk_hash],
                 )
             )
 
