@@ -2,7 +2,7 @@ import asyncio
 from collections import Counter
 from dataclasses import dataclass
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.embedding import embed_texts
@@ -10,6 +10,14 @@ from app.models.chunk import Chunk
 from app.models.enums import AuthorPosition, Era, TextRole
 from app.models.source import Source
 from app.theonyms import expand_query
+
+# A chunk's effective tradition: its own override if set, otherwise the
+# source's. One general-mythology volume (e.g. Bulfinch) can carry distinct
+# Norse, Egyptian and Hindu chapters even though the source row is tagged
+# "Greek"; every tradition read (the filter, the traditions list, the corpus
+# overview) goes through this so those chapters are found and advertised
+# under their real pantheon rather than the container's.
+_EFFECTIVE_TRADITION = func.coalesce(Chunk.tradition, Source.tradition)
 
 # Bias Mitigation Plan Part 2: default ordering (not filtering) prefers
 # indigenous primary sources when present. Everything else, including
@@ -91,7 +99,7 @@ def _build_candidate_query(query_embedding: list[float], tradition: str | None) 
         .limit(_CANDIDATE_POOL_SIZE)
     )
     if tradition is not None:
-        stmt = stmt.where(Source.tradition == tradition)
+        stmt = stmt.where(_EFFECTIVE_TRADITION == tradition)
     return stmt
 
 
@@ -148,12 +156,14 @@ def _sort_by_provenance(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
 
 
 def _build_traditions_query() -> Select:
+    tradition = _EFFECTIVE_TRADITION.label("tradition")
     return (
-        select(Source.tradition)
+        select(tradition)
+        .select_from(Source)
         .join(Chunk, Chunk.source_id == Source.id)
-        .where(Source.tradition.is_not(None), Chunk.is_active.is_(True))
+        .where(tradition.is_not(None), Chunk.is_active.is_(True))
         .distinct()
-        .order_by(Source.tradition)
+        .order_by(tradition)
     )
 
 
@@ -167,12 +177,14 @@ async def list_traditions(db: AsyncSession) -> list[str]:
 
 
 def _build_corpus_query() -> Select:
+    tradition = _EFFECTIVE_TRADITION.label("tradition")
     return (
-        select(Source.tradition, Source.title, Source.url)
+        select(tradition, Source.title, Source.url)
+        .select_from(Source)
         .join(Chunk, Chunk.source_id == Source.id)
-        .where(Source.tradition.is_not(None), Chunk.is_active.is_(True))
+        .where(tradition.is_not(None), Chunk.is_active.is_(True))
         .distinct()
-        .order_by(Source.tradition, Source.title)
+        .order_by(tradition, Source.title)
     )
 
 
@@ -223,7 +235,7 @@ async def retrieve_chunks(
             chunk_id=chunk.id,
             source_id=source.id,
             source_url=source.url,
-            tradition=source.tradition,
+            tradition=chunk.tradition or source.tradition,
             chunk_text=chunk.chunk_text,
             distance=distance,
             author_position=source.author_position,

@@ -181,9 +181,16 @@ def test_build_traditions_query_only_counts_active_chunks():
     )
 
     assert "chunks.is_active IS true" in compiled
-    assert "sources.tradition IS NOT NULL" in compiled
+    assert "coalesce(chunks.tradition, sources.tradition) IS NOT NULL" in compiled
     assert "DISTINCT" in compiled
     assert "ORDER BY" in compiled
+
+
+def test_build_traditions_query_reads_the_chunk_override_before_the_source():
+    stmt = _build_traditions_query()
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+
+    assert "coalesce(chunks.tradition, sources.tradition)" in compiled
 
 
 def test_build_corpus_query_only_includes_sources_with_active_chunks():
@@ -194,6 +201,13 @@ def test_build_corpus_query_only_includes_sources_with_active_chunks():
 
     assert "JOIN chunks ON chunks.source_id = sources.id" in compiled
     assert "chunks.is_active IS true" in compiled
-    assert "sources.tradition IS NOT NULL" in compiled
+    assert "coalesce(chunks.tradition, sources.tradition) IS NOT NULL" in compiled
     assert "DISTINCT" in compiled
-    assert "ORDER BY sources.tradition, sources.title" in compiled
+    assert "ORDER BY tradition, sources.title" in compiled
+
+
+def test_build_candidate_query_tradition_filter_reads_the_chunk_override():
+    stmt = _build_candidate_query([0.1] * 384, tradition="Norse")
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+
+    assert "coalesce(chunks.tradition, sources.tradition) =" in compiled
