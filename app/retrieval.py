@@ -41,7 +41,16 @@ _PROVENANCE_PRIORITY = {
 # documented, accepted limitation (see the results doc and
 # LoreTrace_Quality_Gates.md Gate 2), not fully closed by this value.
 RELEVANCE_THRESHOLD = 0.35
-DEFAULT_TOP_K = 5
+# 10, not 5: when two texts in a tradition disagree, the weaker-matching
+# side can sit several ranks below the stronger one while still being a
+# genuine hit under RELEVANCE_THRESHOLD (LoreTrace_Greek_Retrieval_
+# Characterization.md, the Aphrodite parentage case — the Homeric Hymn's
+# "daughter of Zeus" chunks rank 7-15 where Hesiod's foam-birth ranks 1).
+# A larger k lets both sides reach the answer without loosening the
+# threshold. Still bounded well under the Groq free-tier per-minute token
+# cap: ~13 chunks of context (10 plus the per-source floor) at a few
+# hundred tokens each.
+DEFAULT_TOP_K = 10
 
 # A source with nothing in the primary band (within RELEVANCE_THRESHOLD)
 # may still contribute its single best chunk if within this looser

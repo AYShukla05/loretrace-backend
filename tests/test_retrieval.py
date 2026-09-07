@@ -89,6 +89,19 @@ def test_select_caps_chunks_from_a_single_source():
     assert len(result) == MAX_CHUNKS_PER_SOURCE
 
 
+def test_top_k_bounds_the_primary_band_selection():
+    # four sources, three relevant chunks each, all within threshold: 12
+    # eligible, spread so the per-source cap never bites before top_k does
+    pool = [
+        pool_chunk(10 * s + i, source_id=s, distance=0.10 + 0.001 * (10 * s + i))
+        for s in range(1, 5)
+        for i in range(3)
+    ]
+
+    assert len(_select_with_source_floor(pool, top_k=10)) == 10
+    assert len(_select_with_source_floor(pool, top_k=12)) == 12
+
+
 def test_select_prefers_other_sources_once_one_is_capped():
     dominant = [pool_chunk(i, source_id=1, distance=0.10 + i * 0.001) for i in range(5)]
     other = [pool_chunk(100, source_id=2, distance=0.30)]
