@@ -6,7 +6,7 @@ import pytest
 from app.models.enums import SourceType
 from app.models.source import Source
 from app.scraping import robots
-from app.scraping.fetch import NotModifiedError, fetch_source_text
+from app.scraping.fetch import NotModifiedError, _extract_gutenberg_text, fetch_source_text
 
 GUTENBERG_BODY = (
     "*** START OF THIS PROJECT GUTENBERG EBOOK ***\n"
@@ -188,6 +188,76 @@ def test_extracts_title_from_mediawiki_first_heading():
     result = run(fetch_source_text(client, source))
 
     assert result.title == "Prose Edda"
+
+
+GUTENBERG_BODY_WITH_FOOTNOTES = (
+    "*** START OF THIS PROJECT GUTENBERG EBOOK ***\n"
+    "The Autonoeian[26] hero took to flight, and {when} no voice followed\n"
+    "he groaned.\n\n"
+    "    [Footnote 26: _Autonoeian._--Ver. 198. Actaeon was the son of\n"
+    "    Autonoe, the daughter of Cadmus.]\n\n"
+    "    [Footnote 31: _Hyperion._--Ver. 192. He was the father of the\n"
+    "    Sun.]\n\n"
+    "And men call her the foam-born goddess.\n"
+    "*** END OF THIS PROJECT GUTENBERG EBOOK ***"
+)
+
+
+def test_strips_gutenberg_footnote_blocks_and_inline_markers():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=GUTENBERG_BODY_WITH_FOOTNOTES)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source("https://example.com/ovid/book.txt")
+
+    text = run(fetch_source_text(client, source)).text
+
+    assert "[Footnote" not in text
+    assert "[26]" not in text
+    assert "Ver. 198" not in text
+    # the translation itself, including its {clarifying} interpolations, stays
+    assert "The Autonoeian hero took to flight" in text
+    assert "{when} no voice followed" in text
+    assert "And men call her the foam-born goddess." in text
+
+
+def test_extract_gutenberg_text_drops_multiline_footnote_but_keeps_narrative():
+    raw = (
+        "*** START OF THE PROJECT GUTENBERG EBOOK ***\n"
+        "Narrative line one.\n\n"
+        "[Footnote 5: _Some place._--Ver. 12. A long note that runs\n"
+        "across several lines and ends much later.]\n\n"
+        "Narrative line two.\n"
+        "*** END OF THE PROJECT GUTENBERG EBOOK ***"
+    )
+
+    text = _extract_gutenberg_text(raw)
+
+    assert text == "Narrative line one.\n\nNarrative line two."
+
+
+def test_extract_gutenberg_text_drops_unnumbered_footnote_form():
+    # Bulfinch's edition writes "[Footnote: ...]" with no number
+    raw = (
+        "*** START OF THE PROJECT GUTENBERG EBOOK ***\n"
+        "Jupiter [Footnote: The names in parentheses are the Greek ones.]\n"
+        "was called the father of gods and men.\n"
+        "*** END OF THE PROJECT GUTENBERG EBOOK ***"
+    )
+
+    assert _extract_gutenberg_text(raw) == ("Jupiter\nwas called the father of gods and men.")
+
+
+def test_extract_gutenberg_text_is_a_no_op_without_footnotes():
+    raw = (
+        "*** START OF THE PROJECT GUTENBERG EBOOK ***\n"
+        "Just a plain line.\n"
+        "*** END OF THE PROJECT GUTENBERG EBOOK ***"
+    )
+
+    assert _extract_gutenberg_text(raw) == "Just a plain line."
 
 
 def test_gutenberg_direct_text_url_skips_catalog_resolution():

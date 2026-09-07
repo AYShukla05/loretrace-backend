@@ -17,6 +17,19 @@ GUTENBERG_END_MARKER = "*** END OF"
 GUTENBERG_TEXT_SUFFIXES = (".txt", ".txt.utf-8")
 GUTENBERG_TITLE_PATTERN = re.compile(r"^Title:\s*(.+)$", re.MULTILINE)
 
+# A translator's footnote apparatus. Some editions interleave these blocks
+# through the narrative in clusters rather than collecting them at the end,
+# so left in they become their own chunks and retrieve as if they were myth
+# content. Two forms appear in this corpus: Riley's Ovid numbers them
+# ("[Footnote 12: ...]") and Bulfinch does not ("[Footnote: ...]"). Each
+# block runs from "[Footnote" + optional number + ":" to the next "]" (no
+# body here nests one); "[12]" is the inline marker that points at a
+# numbered one.
+GUTENBERG_FOOTNOTE_BLOCK = re.compile(r"\[Footnote(?:\s+\d+)?:.*?\]", re.DOTALL)
+GUTENBERG_INLINE_REF = re.compile(r"\[\d+\]")
+_TRAILING_SPACE = re.compile(r"[ \t]+\n")
+_BLANK_LINE_RUN = re.compile(r"\n{3,}")
+
 _rate_limiter = DomainRateLimiter(min_interval_seconds=2.0)
 
 
@@ -114,7 +127,19 @@ def _extract_gutenberg_text(raw: str) -> str:
     if end == -1:
         end = len(raw)
 
-    return raw[start:end].strip()
+    return _strip_footnote_apparatus(raw[start:end]).strip()
+
+
+def _strip_footnote_apparatus(text: str) -> str:
+    """Drop a translator's numbered footnote blocks and the inline markers
+    that reference them, leaving the translation itself (including its
+    "{clarifying}" interpolations) untouched. A no-op on text with no such
+    apparatus.
+    """
+    text = GUTENBERG_FOOTNOTE_BLOCK.sub("", text)
+    text = GUTENBERG_INLINE_REF.sub("", text)
+    text = _TRAILING_SPACE.sub("\n", text)
+    return _BLANK_LINE_RUN.sub("\n\n", text)
 
 
 def _extract_gutenberg_title(raw: str) -> str | None:
