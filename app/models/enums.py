@@ -6,6 +6,13 @@ from sqlalchemy import Enum as SAEnum
 class SourceType(str, enum.Enum):
     GUTENBERG_TEXT = "gutenberg_text"
     WIKISOURCE = "wikisource"
+    # A Wikisource table-of-contents page for a multi-part work (e.g. a
+    # chronicle split one subpage per book or section). The scraper walks
+    # the index's child subpages in document order and concatenates them
+    # into one source, rather than treating the index page itself as text.
+    # Value kept short: sources.source_type is a native_enum=False VARCHAR
+    # sized to the longest member, and a longer one would need a migration.
+    WIKI_INDEX = "wiki_index"
     WIKIPEDIA = "wikipedia"
     MANUAL_UPLOAD = "manual_upload"
 

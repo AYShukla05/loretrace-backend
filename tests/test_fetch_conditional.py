@@ -6,7 +6,12 @@ import pytest
 from app.models.enums import SourceType
 from app.models.source import Source
 from app.scraping import robots
-from app.scraping.fetch import NotModifiedError, _extract_gutenberg_text, fetch_source_text
+from app.scraping.fetch import (
+    NotModifiedError,
+    _extract_gutenberg_text,
+    _rate_limiter,
+    fetch_source_text,
+)
 
 GUTENBERG_BODY = (
     "*** START OF THIS PROJECT GUTENBERG EBOOK ***\n"
@@ -276,3 +281,131 @@ def test_gutenberg_direct_text_url_skips_catalog_resolution():
 
     assert "/five/book.txt" in requested_paths
     assert "/ebooks" not in "".join(requested_paths)
+
+
+WIKISOURCE_INDEX_BODY = (
+    "<html><body>"
+    '<h1 id="firstHeading"><span>Nihongi</span></h1>'
+    '<div id="mw-content-text">'
+    "<p>Chronicles of Japan. Translated by W. G. Aston.</p>"
+    "<ul>"
+    '<li><a href="/wiki/Nihongi/Introduction">Introduction</a></li>'
+    '<li><a href="/wiki/Nihongi/Book_I">Book I</a></li>'
+    '<li><a href="/wiki/Nihongi/Book_II">Book II</a></li>'
+    "</ul>"
+    '<p>See <a href="/wiki/Author:William_George_Aston">the translator</a>, '
+    '<a href="/wiki/Nihongi/Book_I#Age_of_the_Gods">a repeat link</a>, and '
+    '<a href="/wiki/Nihongi/Book_I/Notes">a deeper page</a>.</p>'
+    "</div></body></html>"
+)
+
+
+def _wiki_child_body(text: str) -> str:
+    return f'<html><body><div id="mw-content-text"><p>{text}</p></div></body></html>'
+
+
+def wikisource_index_handler(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    bodies = {
+        "/robots.txt": "",
+        "/wiki/Nihongi": WIKISOURCE_INDEX_BODY,
+        "/wiki/Nihongi/Introduction": _wiki_child_body("Translator's introduction."),
+        "/wiki/Nihongi/Book_I": _wiki_child_body("In the beginning, Izanagi."),
+        "/wiki/Nihongi/Book_II": _wiki_child_body("The gods descended."),
+        "/wiki/Nihongi/Book_I/Notes": _wiki_child_body("SHOULD NOT APPEAR."),
+    }
+    if path in bodies:
+        return httpx.Response(200, text=bodies[path])
+    return httpx.Response(404)
+
+
+@pytest.fixture
+def no_rate_limit():
+    original = _rate_limiter._min_interval
+    _rate_limiter._min_interval = 0.0
+    _rate_limiter._last_request.clear()
+    yield
+    _rate_limiter._min_interval = original
+
+
+def test_wikisource_index_walks_child_subpages_in_document_order(no_rate_limit):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(wikisource_index_handler))
+    source = make_source(
+        "https://en.wikisource.org/wiki/Nihongi", source_type=SourceType.WIKI_INDEX
+    )
+
+    result = run(fetch_source_text(client, source))
+
+    assert result.text == (
+        "Translator's introduction.\n\nIn the beginning, Izanagi.\n\nThe gods descended."
+    )
+    assert "SHOULD NOT APPEAR" not in result.text
+    assert result.title == "Nihongi"
+
+
+def test_wikisource_index_ignores_cached_validators(no_rate_limit):
+    seen_headers = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/robots.txt":
+            seen_headers.append({k.lower() for k in request.headers})
+        return wikisource_index_handler(request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source(
+        "https://en.wikisource.org/wiki/Nihongi",
+        source_type=SourceType.WIKI_INDEX,
+        etag='"abc123"',
+        last_modified="Tue, 01 Jul 2026 00:00:00 GMT",
+    )
+
+    result = run(fetch_source_text(client, source))
+
+    assert result.etag is None
+    assert result.last_modified is None
+    assert all("if-none-match" not in headers for headers in seen_headers)
+    assert all("if-modified-since" not in headers for headers in seen_headers)
+
+
+def test_wikisource_index_raises_when_no_child_subpages(no_rate_limit):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(
+            200,
+            text=(
+                '<html><body><h1 id="firstHeading">Empty</h1>'
+                '<div id="mw-content-text"><p>No subpage links here.</p></div></body></html>'
+            ),
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source(
+        "https://en.wikisource.org/wiki/Empty", source_type=SourceType.WIKI_INDEX
+    )
+
+    with pytest.raises(ValueError):
+        run(fetch_source_text(client, source))
+
+
+def test_strips_mediawiki_reference_list_from_content():
+    body = (
+        '<html><body><h1 id="firstHeading">Section 1</h1>'
+        '<div id="mw-content-text">'
+        '<p>The narrative text.<sup class="reference">[1]</sup></p>'
+        '<ol class="references"><li>A long philological footnote citing Motowori.</li></ol>'
+        "</div></body></html>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=body)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    source = make_source("https://en.wikisource.org/wiki/Page", source_type=SourceType.WIKISOURCE)
+
+    result = run(fetch_source_text(client, source))
+
+    assert result.text == "The narrative text."
+    assert "philological footnote" not in result.text

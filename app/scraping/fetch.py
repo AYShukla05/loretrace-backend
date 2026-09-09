@@ -1,6 +1,6 @@
 import re
 from typing import NamedTuple
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -52,9 +52,13 @@ async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> FetchR
     if source.source_type not in (
         SourceType.GUTENBERG_TEXT,
         SourceType.WIKISOURCE,
+        SourceType.WIKI_INDEX,
         SourceType.WIKIPEDIA,
     ):
         raise NotImplementedError(f"no scraper for source_type={source.source_type}")
+
+    if source.source_type == SourceType.WIKI_INDEX:
+        return await _fetch_wikisource_index(client, source)
 
     url = source.url
     if source.source_type == SourceType.GUTENBERG_TEXT:
@@ -89,6 +93,82 @@ async def fetch_source_text(client: httpx.AsyncClient, source: Source) -> FetchR
         last_modified=response.headers.get("Last-Modified"),
         title=title,
     )
+
+
+async def _fetch_wikisource_index(client: httpx.AsyncClient, source: Source) -> FetchResult:
+    """Walk a Wikisource table-of-contents page's child subpages and
+    concatenate them into one text.
+
+    The index page itself is just a list of links; the work's text lives on
+    one subpage per book or section. Children are taken in the order they
+    appear on the index and only one level below it, so a section's own
+    sub-sections aren't pulled in a second time. Conditional-request
+    validators aren't stored for this source type: a 304 on the index page
+    wouldn't say whether a child was edited, so process_source's
+    content-hash check is what detects a genuine no-op re-scrape instead.
+    """
+    index_url = source.url
+    if not await can_fetch(client, index_url, USER_AGENT):
+        raise RobotsDisallowedError(f"robots.txt disallows fetching {index_url}")
+    await _rate_limiter.wait(index_url)
+    index_response = await client.get(
+        index_url, headers={"User-Agent": USER_AGENT}, timeout=30, follow_redirects=True
+    )
+    index_response.raise_for_status()
+
+    child_urls = _wikisource_child_links(index_response.text, str(index_response.url))
+    if not child_urls:
+        raise ValueError(f"no child subpages found on Wikisource index {index_url}")
+
+    parts = []
+    for child_url in child_urls:
+        if not await can_fetch(client, child_url, USER_AGENT):
+            raise RobotsDisallowedError(f"robots.txt disallows fetching {child_url}")
+        await _rate_limiter.wait(child_url)
+        child_response = await client.get(
+            child_url, headers={"User-Agent": USER_AGENT}, timeout=30, follow_redirects=True
+        )
+        child_response.raise_for_status()
+        parts.append(_extract_mediawiki_text(child_response.text))
+
+    return FetchResult(
+        text="\n\n".join(parts),
+        etag=None,
+        last_modified=None,
+        title=_extract_mediawiki_title(index_response.text),
+    )
+
+
+def _wikisource_child_links(index_html: str, index_url: str) -> list[str]:
+    """Ordered, de-duplicated absolute URLs of an index page's direct child
+    subpages. A Wikisource subpage's title is "Parent/Child", so a link one
+    level below the index (with no further "/") is a child; a deeper link is
+    a child's own section and is skipped. Comparison is on the decoded path
+    so an encoded comma or parenthesis in the work's title doesn't hide a
+    match.
+    """
+    soup = BeautifulSoup(index_html, "html.parser")
+    content = soup.select_one("#mw-content-text")
+    if content is None:
+        raise ValueError("could not find MediaWiki content div")
+
+    prefix = unquote(urlsplit(index_url).path).rstrip("/") + "/"
+    seen = set()
+    children = []
+    for anchor in content.find_all("a", href=True):
+        raw_href = anchor["href"].split("#", 1)[0]
+        decoded_path = unquote(urlsplit(raw_href).path)
+        if not decoded_path.startswith(prefix):
+            continue
+        remainder = decoded_path[len(prefix) :]
+        if not remainder or "/" in remainder:
+            continue
+        absolute = urljoin(index_url, raw_href)
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        children.append(absolute)
+    return children
 
 
 async def _resolve_gutenberg_text_url(client: httpx.AsyncClient, url: str) -> str:
@@ -174,7 +254,8 @@ def _extract_mediawiki_text(html: str) -> str:
 
     noise_selector = (
         "style, script, table, sup.reference, "
-        ".navbox, .mw-editsection, .ws-noexport, .noprint, .printfooter"
+        ".navbox, .mw-editsection, .ws-noexport, .noprint, .printfooter, "
+        ".references, .reflist, .mw-references-wrap"
     )
     for tag in content.select(noise_selector):
         tag.decompose()
