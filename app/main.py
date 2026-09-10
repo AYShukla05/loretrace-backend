@@ -23,15 +23,22 @@ from app.worker.runner import run_worker
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Runs the scrape-job poller as a background task inside this same
     # process rather than a separate service, since the free tier of the
-    # target deployment platform (Render) has no free background-worker
-    # service type.
-    worker_task = asyncio.create_task(run_worker())
+    # target deployment platform has no free background-worker service type.
+    # Skipped in production: that instance is memory-constrained (512 MB on
+    # the current host) and a claimed job's fetch + chunk + embed of a large
+    # source OOM-kills the whole web process. Ingestion is run locally
+    # against the shared database instead, so nothing is lost by not polling
+    # there.
+    worker_task = (
+        None if settings.environment == "production" else asyncio.create_task(run_worker())
+    )
     try:
         yield
     finally:
-        worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await worker_task
+        if worker_task is not None:
+            worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker_task
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
