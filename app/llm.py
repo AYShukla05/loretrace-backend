@@ -7,6 +7,13 @@ from app.self_hosted import call_self_hosted
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 CLOUDFLARE_CHAT_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
 
+# Both providers cap the completion short by default, which truncated real
+# grounded answers mid-sentence in the 2026-09-11 MVP eval (a 5-source "Who
+# is Sigurd?" answer cut off). gpt-oss's hidden reasoning tokens count
+# against this too, so it's set generously; a multi-source myth answer is
+# well under it, and input + this stays under the Groq free-tier 8k TPM.
+LLM_MAX_TOKENS = 2048
+
 # Rules 3 and 4 map directly to LoreTrace_Bias_Mitigation_Plan.md Part 1: a
 # model can get an answer "factually right" excerpt by excerpt and still leak
 # pretrained bias by synthesizing across sources itself, or by hedging a claim
@@ -125,7 +132,12 @@ async def _call_groq(client: httpx.AsyncClient, model: str, messages: list[dict]
     response = await client.post(
         GROQ_CHAT_URL,
         headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-        json={"model": model, "messages": messages, "temperature": 0.2},
+        json={
+            "model": model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": LLM_MAX_TOKENS,
+        },
         timeout=30,
     )
     response.raise_for_status()
@@ -140,7 +152,7 @@ async def _call_cloudflare(client: httpx.AsyncClient, messages: list[dict]) -> s
     response = await client.post(
         url,
         headers={"Authorization": f"Bearer {settings.cloudflare_api_token}"},
-        json={"messages": messages},
+        json={"messages": messages, "max_tokens": LLM_MAX_TOKENS},
         timeout=30,
     )
     response.raise_for_status()

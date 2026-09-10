@@ -233,6 +233,8 @@ def test_generate_answer_sends_auth_header_and_returns_content(monkeypatch):
     assert result == "Achilles is the son of Peleus and Thetis."
     assert seen["authorization"] == "Bearer test-key"
     assert "Sing, goddess, the anger of Achilles." in seen["body"]
+    # explicit completion cap so real multi-source answers don't truncate
+    assert json.loads(seen["body"])["max_tokens"] == 2048
 
 
 def test_generate_answer_falls_back_to_8b_on_rate_limit(monkeypatch):
