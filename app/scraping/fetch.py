@@ -139,13 +139,26 @@ async def _fetch_wikisource_index(client: httpx.AsyncClient, source: Source) -> 
     )
 
 
+# Subpages that are a modern editor's apparatus rather than part of the
+# work itself, dropped on the walk so they don't crowd out the text in
+# retrieval. Chamberlain's 155KB translator's introduction to the Kojiki
+# was out-ranking the actual myth narrative for Japanese queries. Keyed by
+# the index page's own last path segment; the value is the set of child
+# segment names to skip. A work's own preface (by its original compiler)
+# is deliberately never listed here — that is part of the text.
+_WIKISOURCE_APPARATUS_SUBPAGES: dict[str, frozenset[str]] = {
+    "Kojiki_(Chamberlain,_1882)": frozenset({"Introduction", "Appendix_1", "Appendix_2"}),
+}
+
+
 def _wikisource_child_links(index_html: str, index_url: str) -> list[str]:
     """Ordered, de-duplicated absolute URLs of an index page's direct child
     subpages. A Wikisource subpage's title is "Parent/Child", so a link one
     level below the index (with no further "/") is a child; a deeper link is
     a child's own section and is skipped. Comparison is on the decoded path
     so an encoded comma or parenthesis in the work's title doesn't hide a
-    match.
+    match. Editor-apparatus subpages listed in _WIKISOURCE_APPARATUS_SUBPAGES
+    are skipped too.
     """
     soup = BeautifulSoup(index_html, "html.parser")
     content = soup.select_one("#mw-content-text")
@@ -153,6 +166,8 @@ def _wikisource_child_links(index_html: str, index_url: str) -> list[str]:
         raise ValueError("could not find MediaWiki content div")
 
     prefix = unquote(urlsplit(index_url).path).rstrip("/") + "/"
+    index_slug = prefix.rstrip("/").rsplit("/", 1)[-1]
+    apparatus = _WIKISOURCE_APPARATUS_SUBPAGES.get(index_slug, frozenset())
     seen = set()
     children = []
     for anchor in content.find_all("a", href=True):
@@ -161,7 +176,7 @@ def _wikisource_child_links(index_html: str, index_url: str) -> list[str]:
         if not decoded_path.startswith(prefix):
             continue
         remainder = decoded_path[len(prefix) :]
-        if not remainder or "/" in remainder:
+        if not remainder or "/" in remainder or remainder in apparatus:
             continue
         absolute = urljoin(index_url, raw_href)
         if absolute in seen:

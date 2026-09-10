@@ -10,6 +10,7 @@ from app.scraping.fetch import (
     NotModifiedError,
     _extract_gutenberg_text,
     _rate_limiter,
+    _wikisource_child_links,
     fetch_source_text,
 )
 
@@ -380,9 +381,7 @@ def test_wikisource_index_raises_when_no_child_subpages(no_rate_limit):
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    source = make_source(
-        "https://en.wikisource.org/wiki/Empty", source_type=SourceType.WIKI_INDEX
-    )
+    source = make_source("https://en.wikisource.org/wiki/Empty", source_type=SourceType.WIKI_INDEX)
 
     with pytest.raises(ValueError):
         run(fetch_source_text(client, source))
@@ -409,3 +408,24 @@ def test_strips_mediawiki_reference_list_from_content():
 
     assert result.text == "The narrative text."
     assert "philological footnote" not in result.text
+
+
+def test_wikisource_child_links_skips_editor_apparatus_subpages():
+    # Uses the real Kojiki index slug, which is registered in
+    # _WIKISOURCE_APPARATUS_SUBPAGES to drop the translator's Introduction
+    # and appendices while keeping the work's own Preface and sections.
+    index_url = "https://en.wikisource.org/wiki/Kojiki_(Chamberlain,_1882)"
+    html = (
+        '<div id="mw-content-text"><ul>'
+        '<li><a href="/wiki/Kojiki_(Chamberlain,_1882)/Introduction">Introduction</a></li>'
+        '<li><a href="/wiki/Kojiki_(Chamberlain,_1882)/Preface">Preface</a></li>'
+        '<li><a href="/wiki/Kojiki_(Chamberlain,_1882)/Section_1">Sect. 1</a></li>'
+        '<li><a href="/wiki/Kojiki_(Chamberlain,_1882)/Appendix_1">Appendix 1</a></li>'
+        '<li><a href="/wiki/Kojiki_(Chamberlain,_1882)/Appendix_2">Appendix 2</a></li>'
+        "</ul></div>"
+    )
+
+    children = _wikisource_child_links(html, index_url)
+
+    tails = [c.rsplit("/", 1)[-1] for c in children]
+    assert tails == ["Preface", "Section_1"]
