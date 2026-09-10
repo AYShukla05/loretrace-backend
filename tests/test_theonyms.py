@@ -44,3 +44,22 @@ def test_none_tradition_is_unchanged():
 
 def test_tradition_lookup_is_case_insensitive():
     assert "Jupiter, Jove" in expand_query("about Zeus", "greek")
+
+
+def test_modern_japanese_name_gets_archaic_forms_appended():
+    out = expand_query("How was Amaterasu born?", "Japanese")
+    assert out.startswith("How was Amaterasu born?")
+    assert "Ama-terasu" in out
+    assert "Heaven-Shining-Great-August-Deity" in out
+
+
+def test_archaic_japanese_form_in_query_anchors_on_modern_name():
+    out = expand_query("what did Sosa no wo do to anger the sun goddess", "Japanese")
+    assert "Susanoo (also called" in out
+
+
+def test_japanese_and_greek_tables_do_not_cross_fire():
+    # "Amaterasu" is only in the Japanese table; a Greek-scoped query
+    # mentioning it gets nothing appended.
+    assert expand_query("was Amaterasu like Helios?", "Greek").endswith("Helios (also called Sol).")
+    assert "Ama-terasu" not in expand_query("was Amaterasu like Helios?", "Greek")

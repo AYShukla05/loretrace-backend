@@ -8,13 +8,20 @@ in Greek-name vocabulary embeds far from the Iliad passage that actually
 answers them, so the retrieval never surfaces the disagreement between
 the two texts.
 
+The Japanese corpus has the same problem for a different reason: the
+19th-century translations don't share the modern romanization a user
+would type. Aston's Nihongi writes "Ama-terasu" and "Sosa no wo";
+Chamberlain's Kojiki renders the names as English epithets outright
+("Heaven-Shining-Great-August-Deity", "His-Impetuous-Male-Augustness").
+A query for "Amaterasu" reaches neither.
+
 Expanding the query with the equivalent names before embedding closes
 that gap. See LoreTrace_Greek_Retrieval_Characterization.md: appending
 the Roman equivalents moves the Iliad's "Venus is child to Jove" chunk
 from rank 86 to rank 1 for the naive "parents of Aphrodite" query.
 
-Deterministic, no LLM. Scoped per tradition so a Roman name in a query
-that was never about Greek myth is left alone.
+Deterministic, no LLM. Scoped per tradition so a name from one
+tradition's table never fires on a query about another.
 """
 
 import re
@@ -52,6 +59,35 @@ _THEONYM_GROUPS: dict[str, tuple[tuple[str, ...], ...]] = {
         ("Helios", "Sol"),
         ("Selene", "Luna"),
         ("Eos", "Aurora"),
+    ),
+    # Modern romanization (what a user types) paired with the forms the
+    # 1882/1896 translations actually use: Aston's hyphenated
+    # transliteration and Chamberlain's translated-epithet names. Verified
+    # against the ingested text of sources 25 (Kojiki) and 26 (Nihongi).
+    "japanese": (
+        (
+            "Amaterasu",
+            "Ama-terasu",
+            "Ama-terasu no Oho-kami",
+            "Sun-Goddess",
+            "Heaven-Shining-Great-August-Deity",
+            "Heaven-Shining-Great-Deity",
+        ),
+        (
+            "Susanoo",
+            "Susa-no-o",
+            "Sosa no wo",
+            "Sosa no wo no Mikoto",
+            "His-Impetuous-Male-Augustness",
+        ),
+        ("Tsukuyomi", "Tsuki-yomi", "Moon-God"),
+        (
+            "Okuninushi",
+            "Oho-kuni-nushi",
+            "Master-of-the-Great-Land",
+            "Oho-na-mochi",
+        ),
+        ("Ninigi", "Ni-nigi"),
     ),
 }
 
